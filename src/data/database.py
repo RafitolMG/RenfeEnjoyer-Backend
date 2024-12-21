@@ -31,7 +31,7 @@ def add_user(username, password, email, abono):
         modals.show_success('User added successfully')
 
     except Exception as e:
-        show_error(str(e))
+        modals.show_error(str(e))
 
 def edit_user(username, password, email, abono):
     try:
@@ -42,6 +42,19 @@ def edit_user(username, password, email, abono):
         conn.close()
 
         modals.show_success('User edited successfully')
+
+    except Exception as e:
+        modals.show_error(str(e))
+
+def get_all_users():
+    try:
+        conn = sqlite3.connect('renfe_enjoyer_database.db')
+        c = conn.cursor()
+        c.execute("SELECT username FROM users")
+        users = c.fetchall()
+        conn.close()
+
+        return users
 
     except Exception as e:
         modals.show_error(str(e))
