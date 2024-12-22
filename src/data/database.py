@@ -58,3 +58,27 @@ def delete_user(username):
 
     except Exception as e:
         modals.show_error(str(e))
+
+def get_user_by_username(username):
+    try:
+        conn = sqlite3.connect('renfe_enjoyer_database.db')
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE username=?", (username,))
+        user = c.fetchone()
+        conn.close()
+        return user
+    except Exception as e:
+        modals.show_error(str(e))
+        return None
+
+def list_users():
+    try:
+        conn = sqlite3.connect('renfe_enjoyer_database.db')
+        c = conn.cursor()
+        c.execute("SELECT * FROM users")
+        users = c.fetchall()
+        conn.close()
+        return users
+    except Exception as e:
+        modals.show_error(str(e))
+        return None
