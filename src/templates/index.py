@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from src.core import renfe_enjoyer
-from src.data.database import create_database, add_user
+from src.data.database import create_database, add_user, edit_user
 
 def main():
     # Ventana principal
@@ -20,7 +20,9 @@ def main():
 
     # Opciones del sub menu de datos
     data_menu.add_command(label="Create Database", command=lambda: create_database())
-    data_menu.add_command(label="Add User", command=lambda: add_user())
+    data_menu.add_command(label="Register User", command=lambda: add_user())
+    data_menu.add_command(label="Edit User", command=lambda: edit_user())
+    data_menu.add_command(label="Select user", command=lambda: delete_user())
 
     # Configura el menu principal
     root.config(menu=menu)
