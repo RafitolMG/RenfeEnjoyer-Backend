@@ -6,7 +6,7 @@ def registro():
     v= tk.Toplevel()
     v.title("Registro de datos")
     v.geometry("600x400")
-    v.wm_iconbitmap('.\\assets\\u327as.ico')
+    v.wm_iconbitmap('./assets/u327as.ico')
     user_label = ttk.Label(v, text="Usuario:")
     user_label.pack()
     user_entry = ttk.Entry(v)
@@ -27,6 +27,8 @@ def registro():
     abono_entry = ttk.Entry(v)
     abono_entry.pack()
 
-    submit_button = ttk.Button(v, text="Guardar", command=lambda: add_user(str(user_entry.get()), str(mail_entry.get()), str(ctr_entry.get()), str(abono_entry.get())))
+    def add_on():
+        add_user(str(user_entry.get()), str(mail_entry.get()), str(ctr_entry.get()), str(abono_entry.get()))
+        v.destroy()
+    submit_button = ttk.Button(v, text="Guardar", command=lambda: add_on())
     submit_button.pack()
-    v.mainloop()
