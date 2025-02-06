@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
+
+from src.core import get_resource_path
 from src.data.database import edit_user
 
 def registro():
     v= tk.Toplevel()
     v.title("Registro de datos")
     v.geometry("600x400")
-    v.wm_iconbitmap('.\\assets\\u327as.ico')
+    v.wm_iconbitmap(get_resource_path('assets/u327as.ico'))
     user_label = ttk.Label(v, text="Usuario:")
     user_label.pack()
     user_entry = ttk.Entry(v)
