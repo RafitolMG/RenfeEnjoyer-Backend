@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+from src.core import get_resource_path
 from src.data.database import get_all_users, get_user, edit_user, delete_user
 
 
@@ -15,7 +16,7 @@ def user_selection_view(set_current_user):
         v= tk.Toplevel()
         v.title("Editar datos")
         v.geometry("600x400")
-        v.wm_iconbitmap('./assets/u327as.ico')
+        v.wm_iconbitmap(get_resource_path('assets/u327as.ico'))
         user_label = ttk.Label(v, text="Usuario:")
         user_label.pack()
         user_entry = ttk.Entry(v)
@@ -56,7 +57,7 @@ def user_selection_view(set_current_user):
     root = tk.Toplevel()
     root.title("User Selection")
     root.geometry("300x200")
-    root.wm_iconbitmap('./assets/u327as.ico')
+    root.wm_iconbitmap(get_resource_path('assets/u327as.ico'))
     users_data = get_all_users()
     label = ttk.Label(root, text="Select a user:")
     label.pack()
