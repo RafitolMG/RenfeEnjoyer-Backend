@@ -1,5 +1,4 @@
-from src.templates.index import main
 
 # Ejecucion del modulo principal
 if __name__ == "__main__":
-    main()
+    print('Temp for deployment in render, ignore this')
