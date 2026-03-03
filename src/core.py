@@ -1,11 +1,19 @@
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from webdriver_manager.chrome import ChromeDriverManager
+
 import time
 import sys
 import os
+
+options = Options()
+options.add_argument("--headless")
+options.add_argument("--no-sandbox")
+options.add_argument("--disable-dev-shm-usage")
 
 def get_resource_path(relative_path):
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -26,7 +34,7 @@ def renfe_enjoyer(hora_de_salida,ida_vuelta,fecha_input,mail,ctr,abono):
     url = 'https://venta.renfe.com/vol/loginCEX.do?Idioma=es&Pais=ES'
 
     try:
-        driver = webdriver.Chrome()
+        driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
         driver.get(url)
 
         wait = WebDriverWait(driver, 100)
