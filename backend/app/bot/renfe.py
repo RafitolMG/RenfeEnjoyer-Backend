@@ -2,7 +2,13 @@ import threading
 from dataclasses import dataclass
 from typing import Protocol
 
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    ElementNotInteractableException,
+    NoSuchElementException,
+    StaleElementReferenceException,
+    TimeoutException,
+)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
@@ -28,12 +34,23 @@ CONFIRMATION_LOCATOR = (
 )
 
 COOKIE_BANNER_TIMEOUT = 20
+COOKIE_OVERLAY_LOCATOR = (By.ID, "onetrust-banner-sdk")
+COOKIE_OVERLAY_TIMEOUT = 10
 POLL_INTERVAL = 2.0
 MODAL_SETTLE_DELAY = 2.0
+
+# Renfe's login inputs accept focus before their scripts finish binding, so the first
+# keystrokes are silently dropped. Each field is filled, read back and retried.
+FIELD_FILL_ATTEMPTS = 4
+FIELD_RETRY_DELAY = 0.5
 
 
 class JobCancelled(Exception):
     """Raised when the user stops a running search."""
+
+
+class LoginFailed(Exception):
+    """Raised when the Renfe login does not complete."""
 
 
 class Reporter(Protocol):
@@ -70,7 +87,7 @@ def run_search(
     driver = build_chrome_driver()
     try:
         wait = WebDriverWait(driver, SELENIUM_TIMEOUT)
-        _login(driver, wait, request, reporter)
+        _login(driver, wait, request, reporter, cancel)
         _guard(cancel)
         _open_pass(driver, wait, request, reporter)
         _guard(cancel)
@@ -87,27 +104,103 @@ def run_search(
 
 
 def _login(
-    driver: WebDriver, wait: WebDriverWait, request: SearchRequest, reporter: Reporter
+    driver: WebDriver,
+    wait: WebDriverWait,
+    request: SearchRequest,
+    reporter: Reporter,
+    cancel: threading.Event,
 ) -> None:
     reporter.state(JobState.LOGGING_IN, "Iniciando sesión en Renfe")
     driver.get(LOGIN_URL)
-    _dismiss_cookie_banner(driver)
+    _dismiss_cookie_banner(driver, reporter)
 
-    driver.find_element(By.ID, "num_tarjeta").send_keys(request.email)
-    driver.find_element(By.ID, "pass-login").send_keys(request.password)
-    wait.until(EC.element_to_be_clickable((By.ID, "loginButtonId"))).click()
-    wait.until(EC.url_contains(HOME_URL_FRAGMENT))
+    fill_field(driver, wait, "num_tarjeta", request.email, cancel)
+    fill_field(driver, wait, "pass-login", request.password, cancel)
+
+    _click(driver, wait.until(EC.element_to_be_clickable((By.ID, "loginButtonId"))))
+    try:
+        wait.until(EC.url_contains(HOME_URL_FRAGMENT))
+    except TimeoutException:
+        raise LoginFailed(_login_failure_reason(driver)) from None
     reporter.log("Sesión iniciada")
 
 
-def _dismiss_cookie_banner(driver: WebDriver) -> None:
+def fill_field(
+    driver: WebDriver,
+    wait: WebDriverWait,
+    field_id: str,
+    value: str,
+    cancel: threading.Event,
+) -> None:
+    """Fill an input and confirm the value landed, retrying until it does.
+
+    `send_keys` reports success even when the page swallows the keystrokes, which is why
+    the value is read back. The scripted fallback assigns through the native setter and
+    replays the input events, so framework-bound fields still register the change.
+    """
+    for attempt in range(1, FIELD_FILL_ATTEMPTS + 1):
+        try:
+            field = wait.until(EC.element_to_be_clickable((By.ID, field_id)))
+            field.click()
+            field.clear()
+            field.send_keys(value)
+            if field.get_attribute("value") == value:
+                return
+
+            _assign_value_by_script(driver, field, value)
+            if field.get_attribute("value") == value:
+                return
+        except (StaleElementReferenceException, ElementNotInteractableException):
+            pass  # the form re-rendered underneath us; refetch on the next pass
+
+        if attempt < FIELD_FILL_ATTEMPTS:
+            _sleep(FIELD_RETRY_DELAY, cancel)
+
+    # The value is never interpolated: one of these fields holds the password.
+    raise LoginFailed(f"No se pudo rellenar el campo '{field_id}' del formulario")
+
+
+def _assign_value_by_script(driver: WebDriver, field: WebElement, value: str) -> None:
+    driver.execute_script(
+        """
+        const [field, value] = arguments;
+        const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value'
+        ).set;
+        setter.call(field, value);
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        field.dispatchEvent(new Event('change', { bubbles: true }));
+        """,
+        field,
+        value,
+    )
+
+
+def _login_failure_reason(driver: WebDriver) -> str:
+    if "loginParticular" in driver.current_url:
+        return (
+            "No se completó el inicio de sesión. Revisa las credenciales, o resuelve "
+            "el captcha o la verificación en la ventana del navegador."
+        )
+    return "No se completó el inicio de sesión."
+
+
+def _dismiss_cookie_banner(driver: WebDriver, reporter: Reporter) -> None:
     try:
         banner = WebDriverWait(driver, COOKIE_BANNER_TIMEOUT).until(
             EC.element_to_be_clickable((By.ID, "onetrust-reject-all-handler"))
         )
     except TimeoutException:
         return
-    banner.click()
+    _click(driver, banner)
+
+    # The banner fades out; keystrokes sent while it still covers the form are lost.
+    try:
+        WebDriverWait(driver, COOKIE_OVERLAY_TIMEOUT).until(
+            EC.invisibility_of_element_located(COOKIE_OVERLAY_LOCATOR)
+        )
+    except TimeoutException:
+        reporter.log("El aviso de cookies no terminó de cerrarse; se continúa igualmente")
 
 
 def _open_pass(
@@ -184,6 +277,19 @@ def _is_sold_out(driver: WebDriver, cancel: threading.Event) -> bool:
         return driver.find_element(By.ID, "modalGeneric").is_displayed()
     except NoSuchElementException:
         return False
+
+
+def _click(driver: WebDriver, element: WebElement) -> None:
+    """Click natively, falling back to JS when something covers the target.
+
+    `element_to_be_clickable` only checks that an element is visible and enabled, not
+    that it is on top. Renfe's cookie banner sits over its own reject button often
+    enough that the native click is intercepted.
+    """
+    try:
+        element.click()
+    except ElementClickInterceptedException:
+        _js_click(driver, element)
 
 
 def _js_click(driver: WebDriver, element: WebElement) -> None:

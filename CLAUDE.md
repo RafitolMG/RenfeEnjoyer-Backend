@@ -73,7 +73,13 @@ Key invariants:
   - Results rows are `row<n>` and the matching reserve button is `continuar<n>` — the number is sliced off
     the row id.
   - `modalGeneric` being visible means the train filled up between listing and reserving: refresh, don't fail.
-  - Clicks go through `_js_click` because Renfe's sticky overlays intercept native Selenium clicks.
+  - Clicks go through `_click`, which falls back to a scripted click. `element_to_be_clickable` only
+    checks visible-and-enabled, not that the element is on top: measured against the live page, the
+    OneTrust banner covers its own reject button and intercepts the native click in roughly 5 of 6 runs.
+    In the pre-v2 code that exception was swallowed by a blanket `except Exception: print(e)`, so the bot
+    died at the cookie banner and never reached the login form — the "it takes 5-10 tries" symptom.
+  - `fill_field` reads the value back after typing and retries, because `send_keys` reports success even
+    when the page swallows the keystrokes, which otherwise submits the login form empty.
 - **`loginParticular.do` vs `loginCEX.do`**: only the former accepts an email in the `num_tarjeta` field.
   `loginCEX` is the company login and wants a client number.
 - **The legacy DB has its columns semantically swapped.** The old `add_user(user, mail, ctr, abono)` wrote

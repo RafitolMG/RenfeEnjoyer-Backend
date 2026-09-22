@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.bot.events import TERMINAL_STATES, JobState
-from app.bot.renfe import JobCancelled, SearchRequest, run_search
+from app.bot.renfe import JobCancelled, LoginFailed, SearchRequest, run_search
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,10 @@ class JobManager:
             reporter.state(JobState.FINISHED, "Navegador cerrado")
         except JobCancelled:
             reporter.state(JobState.CANCELLED, "Búsqueda detenida")
+        except LoginFailed as exc:
+            # Already phrased for the user; the type name would only add noise.
+            logger.warning("Renfe login failed: %s", exc)
+            reporter.state(JobState.FAILED, str(exc))
         except Exception as exc:
             logger.exception("Renfe job failed")
             reporter.state(JobState.FAILED, f"{type(exc).__name__}: {exc}")
