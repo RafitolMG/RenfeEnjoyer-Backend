@@ -1,10 +1,15 @@
 # Python
 __pycache__/
 *.py[cod]
-
-# Virtual environment
 .venv/
 venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
-# Local SQLite database (created at runtime by "Create Database")
-renfe_enjoyer_database.db
+# Node
+node_modules/
+dist/
+
+# Local SQLite databases (hold Renfe credentials, never commit)
+*.db
