@@ -1,12 +1,13 @@
 import tkinter as tk
 from tkinter import ttk
 from src.data.database import edit_user
+from src.templates.ui_utils import set_window_icon
 
 def registro():
     v= tk.Toplevel()
     v.title("Registro de datos")
     v.geometry("600x400")
-    v.wm_iconbitmap('.\\assets\\u327as.ico')
+    set_window_icon(v)
     user_label = ttk.Label(v, text="Usuario:")
     user_label.pack()
     user_entry = ttk.Entry(v)

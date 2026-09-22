@@ -1,9 +1,32 @@
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+import shutil
 import time
+
+def build_chrome_driver():
+    """Create a Chrome/Chromium driver that works on Windows and Linux.
+
+    On most Linux distros the browser binary is 'chromium' (not 'google-chrome')
+    and chromedriver is provided by the system on PATH, so point Selenium at both
+    explicitly instead of relying on the Windows defaults.
+    """
+    options = Options()
+    for browser in ('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'):
+        path = shutil.which(browser)
+        if path:
+            options.binary_location = path
+            break
+
+    driver_path = shutil.which('chromedriver')
+    if driver_path:
+        return webdriver.Chrome(service=Service(driver_path), options=options)
+    # No system chromedriver: let Selenium Manager resolve one automatically.
+    return webdriver.Chrome(options=options)
 
 def select_journey_type(driver,journey_type):
     if journey_type == 'ida':
@@ -17,10 +40,13 @@ def select_journey_type(driver,journey_type):
 # Abre la página de Renfe
 def renfe_enjoyer(hora_de_salida,ida_vuelta,fecha_input,mail,ctr,abono):
     # URL de la página de Renfe
-    url = 'https://venta.renfe.com/vol/loginCEX.do?Idioma=es&Pais=ES'
+    # Login de particular: el campo 'num_tarjeta' aquí está etiquetado
+    # "Email / Número Más Renfe" y acepta el correo. loginCEX.do es el login de
+    # empresa (número de cliente) y NO admite email.
+    url = 'https://venta.renfe.com/vol/loginParticular.do?Idioma=es&Pais=ES'
 
     try:
-        driver = webdriver.Chrome()
+        driver = build_chrome_driver()
         driver.get(url)
 
         wait = WebDriverWait(driver, 100)

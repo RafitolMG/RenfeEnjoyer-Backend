@@ -1,11 +1,10 @@
 import tkinter as tk
 from tkinter import ttk
 
-from sympy.physics.units import current
-
 from src.core import renfe_enjoyer
 from src.data.database import create_database, get_user
 from src.templates.auth.register_user import registro
+from src.templates.ui_utils import set_window_icon
 from src.templates.views.user_selection import user_selection_view
 
 def main():
@@ -13,7 +12,7 @@ def main():
     root = tk.Tk()
     root.title("Renfe Enjoyer")
     root.geometry("600x400")
-    root.wm_iconbitmap('./assets/u327as.ico')
+    set_window_icon(root)
     # Menu principal
     menu=tk.Menu(root)
 
