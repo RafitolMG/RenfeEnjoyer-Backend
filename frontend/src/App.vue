@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 
 import { api } from '@/api/client'
+import logoUrl from '@/assets/logo.webp'
 import type { JourneyType, Profile } from '@/api/types'
 import JobMonitor from '@/components/JobMonitor.vue'
 import ProfileDialog from '@/components/ProfileDialog.vue'
@@ -95,11 +96,8 @@ onMounted(() => {
   <div class="shell">
     <header class="masthead">
       <div class="brand">
-        <span class="brand__mark" aria-hidden="true" />
-        <div>
-          <h1 class="brand__name">Renfe Enjoyer</h1>
-          <p class="brand__tagline">Caza plazas de abono automáticamente</p>
-        </div>
+        <img class="brand__mark" :src="logoUrl" alt="" width="40" height="40" />
+        <h1 class="brand__name">Renfe Enjoyer</h1>
       </div>
 
       <div class="session">
@@ -181,21 +179,15 @@ onMounted(() => {
 }
 
 .brand__mark {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--border-strong);
 }
 
 .brand__name {
   font-size: 22px;
-}
-
-.brand__tagline {
-  margin: 2px 0 0;
-  font-size: 13px;
-  color: var(--text-muted);
 }
 
 .banner {
