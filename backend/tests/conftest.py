@@ -5,15 +5,20 @@ from pathlib import Path
 
 import pytest
 
-# Must be set before importing the app: config resolves the DB path at import time.
-os.environ["RENFE_DB_PATH"] = str(Path(tempfile.gettempdir()) / "renfe_enjoyer_test.db")
+# Must be set before importing the app: config resolves these paths at import time.
+# The profile directory in particular holds a real logged-in Renfe session, and the
+# session tests create and delete it, so it must never point at the real one.
+_TEST_ROOT = Path(tempfile.gettempdir()) / "renfe_enjoyer_test"
+os.environ["RENFE_DB_PATH"] = str(_TEST_ROOT / "test.db")
+os.environ["RENFE_PROFILE_DIR"] = str(_TEST_ROOT / "browser-profile")
+_TEST_ROOT.mkdir(parents=True, exist_ok=True)
 
-from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
+from sqlmodel.pool import StaticPool  # noqa: E402
 
-from app.db.session import get_session
-from app.main import app
+from app.db.session import get_session  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture
