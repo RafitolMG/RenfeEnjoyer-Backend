@@ -5,6 +5,7 @@ export type JobState =
   | 'starting'
   | 'logging_in'
   | 'opening_pass'
+  | 'awaiting_human'
   | 'awaiting_code'
   | 'searching'
   | 'polling'

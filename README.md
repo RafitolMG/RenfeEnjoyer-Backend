@@ -66,6 +66,15 @@ Dos advertencias:
 - Desde el móvil puedes lanzar, seguir y detener una búsqueda, pero **la compra hay que rematarla
   en la máquina** donde corre el bot, porque es ahí donde se abre el navegador.
 
+## Captcha en el inicio de sesión
+
+Renfe protege el login con reCAPTCHA y una sesión automatizada suele recibir un reto de imágenes.
+El bot **no intenta resolverlo**: pasa al estado `awaiting_human`, te cede la ventana del navegador
+y sigue solo en cuanto lo completes.
+
+Esto implica que el inicio de sesión no es totalmente desatendido, y que si usas la app desde el
+móvil puede que necesites acercarte al equipo para ese paso.
+
 ## Verificación en dos pasos
 
 Si Renfe pide un código por SMS o correo, el bot **no falla**: se queda esperando en el estado

@@ -181,3 +181,32 @@ def test_prompt_wait_aborts_on_cancellation() -> None:
 
     with pytest.raises(renfe.JobCancelled):
         prompt.wait(cancel)
+
+
+class FakeFrame:
+    def __init__(self, displayed: bool) -> None:
+        self.displayed = displayed
+
+    def is_displayed(self) -> bool:
+        return self.displayed
+
+
+class FrameDriver:
+    def __init__(self, frames: list[FakeFrame]) -> None:
+        self.frames = frames
+
+    def find_elements(self, by: str, selector: str) -> list[FakeFrame]:
+        return self.frames
+
+
+def test_captcha_detected_when_the_challenge_is_showing() -> None:
+    assert renfe._captcha_is_showing(FrameDriver([FakeFrame(displayed=True)]))
+
+
+def test_hidden_captcha_frame_is_not_a_challenge() -> None:
+    """The reCAPTCHA anchor frame is always present; only the challenge blocks login."""
+    assert not renfe._captcha_is_showing(FrameDriver([FakeFrame(displayed=False)]))
+
+
+def test_no_captcha_frames_at_all() -> None:
+    assert not renfe._captcha_is_showing(FrameDriver([]))

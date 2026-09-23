@@ -61,6 +61,11 @@ Key invariants:
 
 - **Only one job at a time.** Each job owns a visible browser window the user must interact with, so
   `start()` raises `JobConflict` (HTTP 409) while another is active.
+- **Renfe's login is behind reCAPTCHA.** Measured against the live site, an automated session
+  scores badly enough to get an image challenge in both headless and headed runs, so the login
+  cannot be fully unattended. The bot does not try to solve it: `awaiting_human` hands the window
+  over and waits (`HUMAN_STEP_TIMEOUT`) until the challenge is gone, then carries on. A persistent
+  Chrome profile would likely raise the score, but that is untested.
 - **Two states park the worker on an event instead of failing.** `awaiting_code` waits on a
   `CodePrompt` until `POST /api/jobs/current/code` supplies the verification code Renfe sent;
   `reserved` waits on `release`. Both are cancellable. The OTP field is matched by the heuristic

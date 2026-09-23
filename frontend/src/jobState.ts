@@ -5,6 +5,7 @@ export const JOB_STATE_LABELS: Record<JobState, string> = {
   starting: 'Arrancando',
   logging_in: 'Iniciando sesión',
   opening_pass: 'Abriendo abono',
+  awaiting_human: 'Captcha pendiente',
   awaiting_code: 'Código requerido',
   searching: 'Configurando',
   polling: 'Buscando plazas',
@@ -19,6 +20,7 @@ export const JOB_STATE_TONES: Record<JobState, string> = {
   starting: 'info',
   logging_in: 'info',
   opening_pass: 'info',
+  awaiting_human: 'warning',
   awaiting_code: 'warning',
   searching: 'info',
   polling: 'warning',
@@ -29,7 +31,11 @@ export const JOB_STATE_TONES: Record<JobState, string> = {
 }
 
 /** States where the bot is parked until the user does something. */
-const WAITING_ON_USER: readonly JobState[] = ['awaiting_code', 'reserved']
+const WAITING_ON_USER: readonly JobState[] = [
+  'awaiting_human',
+  'awaiting_code',
+  'reserved',
+]
 
 /** States where a browser session is open, so no new search may start. */
 const OCCUPIED: readonly JobState[] = [

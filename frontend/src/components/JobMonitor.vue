@@ -22,6 +22,7 @@ const code = ref('')
 
 const isReserved = computed(() => props.status.state === 'reserved')
 const needsCode = computed(() => props.status.state === 'awaiting_code')
+const needsHuman = computed(() => props.status.state === 'awaiting_human')
 const canStop = computed(() => occupiesBrowser(props.status.state))
 const attempts = computed(() => props.status.attempts ?? 0)
 
@@ -81,6 +82,11 @@ function formatTime(timestamp: string): string {
       <span class="attempts__value">{{ attempts }}</span>
       <span class="attempts__label">recargas de la página</span>
     </p>
+
+    <div v-if="needsHuman" class="callout callout--action">
+      <strong>Renfe pide resolver un captcha.</strong>
+      Complétalo en la ventana del navegador que ha abierto el bot; la búsqueda seguirá sola.
+    </div>
 
     <form v-if="needsCode" class="callout callout--action" @submit.prevent="submitCode">
       <p class="callout__text">

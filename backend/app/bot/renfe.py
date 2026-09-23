@@ -50,6 +50,14 @@ FIELD_RETRY_DELAY = 0.5
 LOGIN_POLL_INTERVAL = 1.0
 CODE_WAIT_POLL = 0.5
 
+# Renfe guards the login with reCAPTCHA, which scores an automated session poorly and
+# shows an image challenge. The bot cannot answer it, so it hands the window over and
+# waits, the same way it does for the purchase itself.
+CAPTCHA_CHALLENGE_SELECTOR = (
+    "iframe[src*='recaptcha/api2/bframe'], #rc-imageselect, iframe[title*='desafío' i]"
+)
+HUMAN_STEP_TIMEOUT = 300.0
+
 
 class JobCancelled(Exception):
     """Raised when the user stops a running search."""
@@ -178,9 +186,29 @@ def _await_session(
 ) -> None:
     """Wait for the session, answering a verification step if Renfe asks for one."""
     deadline = time.monotonic() + SELENIUM_TIMEOUT
+    announced_captcha = False
     while time.monotonic() < deadline:
         if HOME_URL_FRAGMENT in driver.current_url:
             return
+
+        if _captcha_is_showing(driver):
+            if not announced_captcha:
+                reporter.state(
+                    JobState.AWAITING_HUMAN,
+                    "Renfe pide resolver un captcha. Complétalo en la ventana del "
+                    "navegador y la búsqueda continuará sola.",
+                )
+                announced_captcha = True
+            # Solving it is human work, so the clock runs on human time.
+            deadline = time.monotonic() + HUMAN_STEP_TIMEOUT
+            _sleep(LOGIN_POLL_INTERVAL, cancel)
+            continue
+
+        if announced_captcha:
+            reporter.log("Captcha resuelto, continuando")
+            reporter.state(JobState.LOGGING_IN, "Iniciando sesión en Renfe")
+            announced_captcha = False
+            deadline = time.monotonic() + SELENIUM_TIMEOUT
 
         field = _find_otp_field(driver)
         if field is not None:
@@ -193,6 +221,13 @@ def _await_session(
 
     reporter.log(f"Campos visibles al fallar: {_describe_visible_inputs(driver)}")
     raise LoginFailed(_login_failure_reason(driver))
+
+
+def _captcha_is_showing(driver: WebDriver) -> bool:
+    return any(
+        element.is_displayed()
+        for element in driver.find_elements(By.CSS_SELECTOR, CAPTCHA_CHALLENGE_SELECTOR)
+    )
 
 
 def _find_otp_field(driver: WebDriver) -> WebElement | None:
