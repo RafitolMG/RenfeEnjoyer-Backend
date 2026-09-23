@@ -31,3 +31,7 @@ class JobStartRequest(SQLModel):
     departure_time: str = Field(pattern=r"^\d{1,2}:\d{2}$")
     journey_type: Literal["ida", "vuelta"]
     date: str = Field(pattern=r"^\d{2}/\d{2}/\d{4}$")
+
+
+class VerificationCode(SQLModel):
+    code: str = Field(min_length=4, max_length=12, pattern=r"^[A-Za-z0-9]+$")

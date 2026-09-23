@@ -84,6 +84,7 @@ onMounted(loadProfiles)
         :connected="connected"
         @stop="run(api.stopJob)"
         @release="run(api.releaseJob)"
+        @code="(value) => run(() => api.submitCode(value))"
       />
     </main>
 

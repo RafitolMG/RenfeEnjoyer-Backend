@@ -61,6 +61,12 @@ Key invariants:
 
 - **Only one job at a time.** Each job owns a visible browser window the user must interact with, so
   `start()` raises `JobConflict` (HTTP 409) while another is active.
+- **Two states park the worker on an event instead of failing.** `awaiting_code` waits on a
+  `CodePrompt` until `POST /api/jobs/current/code` supplies the verification code Renfe sent;
+  `reserved` waits on `release`. Both are cancellable. The OTP field is matched by the heuristic
+  selectors in `config.OTP_SELECTOR` — **unverified against the real markup**, since triggering it
+  needs a live login with verification enabled. `RENFE_OTP_SELECTOR` overrides it, and a failed
+  login logs the page's visible inputs so the real selector can be identified.
 - **`reserved` is not a terminal state.** The worker parks on the `release` event until the user confirms
   via `POST /api/jobs/current/release`; only then is the browser closed. This replaces the old
   `input('Presiona Enter...')` that made the app console-only.

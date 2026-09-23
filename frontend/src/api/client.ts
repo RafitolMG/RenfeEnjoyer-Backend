@@ -44,5 +44,11 @@ export const api = {
 
   stopJob: () => request<JobStatus>('/jobs/current/stop', { method: 'POST' }),
 
+  submitCode: (code: string) =>
+    request<JobStatus>('/jobs/current/code', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
   releaseJob: () => request<JobStatus>('/jobs/current/release', { method: 'POST' }),
 }

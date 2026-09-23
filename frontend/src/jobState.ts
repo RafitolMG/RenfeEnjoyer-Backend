@@ -5,6 +5,7 @@ export const JOB_STATE_LABELS: Record<JobState, string> = {
   starting: 'Arrancando',
   logging_in: 'Iniciando sesión',
   opening_pass: 'Abriendo abono',
+  awaiting_code: 'Código requerido',
   searching: 'Configurando',
   polling: 'Buscando plazas',
   reserved: 'Plaza reservada',
@@ -18,6 +19,7 @@ export const JOB_STATE_TONES: Record<JobState, string> = {
   starting: 'info',
   logging_in: 'info',
   opening_pass: 'info',
+  awaiting_code: 'warning',
   searching: 'info',
   polling: 'warning',
   reserved: 'success',
@@ -26,6 +28,9 @@ export const JOB_STATE_TONES: Record<JobState, string> = {
   cancelled: 'muted',
 }
 
+/** States where the bot is parked until the user does something. */
+const WAITING_ON_USER: readonly JobState[] = ['awaiting_code', 'reserved']
+
 /** States where a browser session is open, so no new search may start. */
 const OCCUPIED: readonly JobState[] = [
   'starting',
@@ -33,7 +38,7 @@ const OCCUPIED: readonly JobState[] = [
   'opening_pass',
   'searching',
   'polling',
-  'reserved',
+  ...WAITING_ON_USER,
 ]
 
 export function occupiesBrowser(state: JobState): boolean {
@@ -42,5 +47,5 @@ export function occupiesBrowser(state: JobState): boolean {
 
 /** States where the bot is still working, as opposed to waiting on the user. */
 export function isWorking(state: JobState): boolean {
-  return occupiesBrowser(state) && state !== 'reserved'
+  return occupiesBrowser(state) && !WAITING_ON_USER.includes(state)
 }

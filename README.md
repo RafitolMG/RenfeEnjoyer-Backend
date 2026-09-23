@@ -66,6 +66,29 @@ Dos advertencias:
 - Desde el móvil puedes lanzar, seguir y detener una búsqueda, pero **la compra hay que rematarla
   en la máquina** donde corre el bot, porque es ahí donde se abre el navegador.
 
+## Verificación en dos pasos
+
+Si Renfe pide un código por SMS o correo, el bot **no falla**: se queda esperando en el estado
+`awaiting_code` y la interfaz muestra un campo para introducirlo. Funciona igual desde el móvil,
+así que puedes contestar la verificación sin estar delante del equipo.
+
+Desde consola, si prefieres:
+
+```bash
+curl -X POST http://<host>:8000/api/jobs/current/code \
+     -H 'Content-Type: application/json' -d '{"code":"483920"}'
+```
+
+El campo del formulario de Renfe se detecta por heurística (`autocomplete="one-time-code"`, y
+nombres que contengan `otp`, `codigo`, `sms` o `verificacion`). **Esa parte no está verificada
+contra el formulario real**, porque para verlo hace falta provocar un login con verificación
+activa. Si no lo reconoce, el registro vuelca los campos visibles de la página al fallar; con eso
+puedes fijar el selector exacto:
+
+```bash
+RENFE_OTP_SELECTOR="input#el-id-real" ./scripts/serve-tailscale.sh
+```
+
 ## Cómo funciona una búsqueda
 
 1. Eliges un perfil, la hora de salida, el trayecto y la fecha.

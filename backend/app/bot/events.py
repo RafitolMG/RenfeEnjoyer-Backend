@@ -5,6 +5,7 @@ class JobState(StrEnum):
     STARTING = "starting"
     LOGGING_IN = "logging_in"
     OPENING_PASS = "opening_pass"
+    AWAITING_CODE = "awaiting_code"
     SEARCHING = "searching"
     POLLING = "polling"
     RESERVED = "reserved"

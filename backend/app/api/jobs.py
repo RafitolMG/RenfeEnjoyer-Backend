@@ -9,10 +9,10 @@ from fastapi import (
 )
 
 from app.api.deps import SessionDep
-from app.bot.renfe import SearchRequest
+from app.bot.renfe import CodeNotRequested, SearchRequest
 from app.bot.runner import JobConflict, job_manager
 from app.db.models import User
-from app.schemas import JobStartRequest
+from app.schemas import JobStartRequest, VerificationCode
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -57,6 +57,16 @@ def release_job() -> dict[str, Any]:
     try:
         job_manager.release()
     except JobConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return job_manager.status()
+
+
+@router.post("/current/code", status_code=status.HTTP_202_ACCEPTED)
+def submit_verification_code(payload: VerificationCode) -> dict[str, Any]:
+    """Supply the code Renfe sent by SMS or email while the bot waits on it."""
+    try:
+        job_manager.submit_code(payload.code)
+    except CodeNotRequested as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return job_manager.status()
 

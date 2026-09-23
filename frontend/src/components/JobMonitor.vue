@@ -11,11 +11,17 @@ const props = defineProps<{
   connected: boolean
 }>()
 
-const emit = defineEmits<{ (e: 'stop'): void; (e: 'release'): void }>()
+const emit = defineEmits<{
+  (e: 'stop'): void
+  (e: 'release'): void
+  (e: 'code', value: string): void
+}>()
 
 const logElement = ref<HTMLElement | null>(null)
+const code = ref('')
 
 const isReserved = computed(() => props.status.state === 'reserved')
+const needsCode = computed(() => props.status.state === 'awaiting_code')
 const canStop = computed(() => occupiesBrowser(props.status.state))
 const attempts = computed(() => props.status.attempts ?? 0)
 
@@ -35,6 +41,13 @@ watch(
     logElement.value?.scrollTo({ top: logElement.value.scrollHeight })
   },
 )
+
+function submitCode() {
+  const value = code.value.trim()
+  if (!value) return
+  emit('code', value)
+  code.value = ''
+}
 
 function describe(event: JobEvent): string {
   if (event.type === 'state') return event.message
@@ -68,6 +81,24 @@ function formatTime(timestamp: string): string {
       <span class="attempts__value">{{ attempts }}</span>
       <span class="attempts__label">recargas de la página</span>
     </p>
+
+    <form v-if="needsCode" class="callout callout--action" @submit.prevent="submitCode">
+      <p class="callout__text">
+        <strong>Renfe pide un código de verificación.</strong>
+        Míralo en tu móvil o tu correo e introdúcelo aquí.
+      </p>
+      <div class="code-row">
+        <input
+          v-model="code"
+          class="input code-input"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          placeholder="123456"
+          aria-label="Código de verificación"
+        />
+        <button type="submit" class="btn btn--primary" :disabled="!code.trim()">Enviar</button>
+      </div>
+    </form>
 
     <div v-if="isReserved" class="callout">
       <strong>Plaza reservada.</strong>
@@ -177,6 +208,28 @@ function formatTime(timestamp: string): string {
   border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
   background: color-mix(in srgb, var(--success) 10%, transparent);
   font-size: 14px;
+}
+
+.callout--action {
+  border-color: color-mix(in srgb, var(--warning) 50%, transparent);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+.callout__text {
+  margin: 0 0 12px;
+}
+
+.code-row {
+  display: flex;
+  gap: 8px;
+}
+
+.code-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  letter-spacing: 0.22em;
+  text-align: center;
 }
 
 .log {

@@ -1,4 +1,6 @@
 import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -10,6 +12,7 @@ from selenium.common.exceptions import (
     TimeoutException,
 )
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
@@ -17,7 +20,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from app.bot.driver import build_chrome_driver
 from app.bot.events import JobState
-from app.config import SELENIUM_TIMEOUT
+from app.config import OTP_SELECTOR, SELENIUM_TIMEOUT
 
 # loginParticular accepts an email in the `num_tarjeta` field (labelled
 # "Email / Número Más Renfe"). loginCEX is the company login and takes a client
@@ -44,6 +47,9 @@ MODAL_SETTLE_DELAY = 2.0
 FIELD_FILL_ATTEMPTS = 4
 FIELD_RETRY_DELAY = 0.5
 
+LOGIN_POLL_INTERVAL = 1.0
+CODE_WAIT_POLL = 0.5
+
 
 class JobCancelled(Exception):
     """Raised when the user stops a running search."""
@@ -51,6 +57,45 @@ class JobCancelled(Exception):
 
 class LoginFailed(Exception):
     """Raised when the Renfe login does not complete."""
+
+
+class CodeNotRequested(Exception):
+    """Raised when a verification code is submitted while none is being awaited."""
+
+
+class CodePrompt:
+    """Parks the bot while the user supplies a verification code.
+
+    Mirrors the release handshake: the worker thread blocks in `wait` while an API
+    request fills the value in from the interface.
+    """
+
+    def __init__(self) -> None:
+        self._requested = threading.Event()
+        self._supplied = threading.Event()
+        self._code = ""
+
+    @property
+    def pending(self) -> bool:
+        return self._requested.is_set() and not self._supplied.is_set()
+
+    def request(self) -> None:
+        self._code = ""
+        self._supplied.clear()
+        self._requested.set()
+
+    def submit(self, code: str) -> None:
+        if not self.pending:
+            raise CodeNotRequested("Ahora mismo no se espera ningún código")
+        self._code = code
+        self._supplied.set()
+
+    def wait(self, cancel: threading.Event) -> str:
+        while not self._supplied.wait(CODE_WAIT_POLL):
+            if cancel.is_set():
+                raise JobCancelled
+        self._requested.clear()
+        return self._code
 
 
 class Reporter(Protocol):
@@ -74,6 +119,7 @@ def run_search(
     reporter: Reporter,
     cancel: threading.Event,
     release: threading.Event,
+    code_prompt: CodePrompt,
 ) -> None:
     """Drive a full booking attempt, blocking until the user releases the browser.
 
@@ -87,7 +133,7 @@ def run_search(
     driver = build_chrome_driver()
     try:
         wait = WebDriverWait(driver, SELENIUM_TIMEOUT)
-        _login(driver, wait, request, reporter, cancel)
+        _login(driver, wait, request, reporter, code_prompt, cancel)
         _guard(cancel)
         _open_pass(driver, wait, request, reporter)
         _guard(cancel)
@@ -108,6 +154,7 @@ def _login(
     wait: WebDriverWait,
     request: SearchRequest,
     reporter: Reporter,
+    code_prompt: CodePrompt,
     cancel: threading.Event,
 ) -> None:
     reporter.state(JobState.LOGGING_IN, "Iniciando sesión en Renfe")
@@ -118,11 +165,85 @@ def _login(
     fill_field(driver, wait, "pass-login", request.password, cancel)
 
     _click(driver, wait.until(EC.element_to_be_clickable((By.ID, "loginButtonId"))))
-    try:
-        wait.until(EC.url_contains(HOME_URL_FRAGMENT))
-    except TimeoutException:
-        raise LoginFailed(_login_failure_reason(driver)) from None
+    _await_session(driver, wait, reporter, code_prompt, cancel)
     reporter.log("Sesión iniciada")
+
+
+def _await_session(
+    driver: WebDriver,
+    wait: WebDriverWait,
+    reporter: Reporter,
+    code_prompt: CodePrompt,
+    cancel: threading.Event,
+) -> None:
+    """Wait for the session, answering a verification step if Renfe asks for one."""
+    deadline = time.monotonic() + SELENIUM_TIMEOUT
+    while time.monotonic() < deadline:
+        if HOME_URL_FRAGMENT in driver.current_url:
+            return
+
+        field = _find_otp_field(driver)
+        if field is not None:
+            _answer_verification(driver, reporter, code_prompt, cancel)
+            # The code was accepted or rejected; give the next page its own budget.
+            deadline = time.monotonic() + SELENIUM_TIMEOUT
+            continue
+
+        _sleep(LOGIN_POLL_INTERVAL, cancel)
+
+    reporter.log(f"Campos visibles al fallar: {_describe_visible_inputs(driver)}")
+    raise LoginFailed(_login_failure_reason(driver))
+
+
+def _find_otp_field(driver: WebDriver) -> WebElement | None:
+    for element in driver.find_elements(By.CSS_SELECTOR, OTP_SELECTOR):
+        if element.is_displayed() and element.is_enabled():
+            return element
+    return None
+
+
+def _answer_verification(
+    driver: WebDriver,
+    reporter: Reporter,
+    code_prompt: CodePrompt,
+    cancel: threading.Event,
+) -> None:
+    code_prompt.request()
+    reporter.state(
+        JobState.AWAITING_CODE,
+        "Renfe pide un código de verificación. Introdúcelo para continuar.",
+    )
+    code = code_prompt.wait(cancel)
+
+    reporter.state(JobState.LOGGING_IN, "Enviando el código de verificación")
+
+    def resolve() -> WebElement:
+        field = _find_otp_field(driver)
+        if field is None:
+            raise StaleElementReferenceException("the verification field disappeared")
+        return field
+
+    field = _fill(driver, resolve, code, cancel, "código de verificación")
+    field.send_keys(Keys.RETURN)
+
+
+def _describe_visible_inputs(driver: WebDriver) -> str:
+    """Report the form's shape so an unseen verification step can be identified."""
+    described = []
+    for element in driver.find_elements(By.CSS_SELECTOR, "input"):
+        try:
+            if not element.is_displayed():
+                continue
+            described.append(
+                "{type}#{id}[name={name}]".format(
+                    type=element.get_attribute("type") or "?",
+                    id=element.get_attribute("id") or "-",
+                    name=element.get_attribute("name") or "-",
+                )
+            )
+        except StaleElementReferenceException:
+            continue
+    return ", ".join(described[:10]) or "ninguno"
 
 
 def fill_field(
@@ -138,26 +259,40 @@ def fill_field(
     the value is read back. The scripted fallback assigns through the native setter and
     replays the input events, so framework-bound fields still register the change.
     """
+
+    def resolve() -> WebElement:
+        return wait.until(EC.element_to_be_clickable((By.ID, field_id)))
+
+    _fill(driver, resolve, value, cancel, field_id)
+
+
+def _fill(
+    driver: WebDriver,
+    resolve: Callable[[], WebElement],
+    value: str,
+    cancel: threading.Event,
+    label: str,
+) -> WebElement:
     for attempt in range(1, FIELD_FILL_ATTEMPTS + 1):
         try:
-            field = wait.until(EC.element_to_be_clickable((By.ID, field_id)))
+            field = resolve()
             field.click()
             field.clear()
             field.send_keys(value)
             if field.get_attribute("value") == value:
-                return
+                return field
 
             _assign_value_by_script(driver, field, value)
             if field.get_attribute("value") == value:
-                return
+                return field
         except (StaleElementReferenceException, ElementNotInteractableException):
             pass  # the form re-rendered underneath us; refetch on the next pass
 
         if attempt < FIELD_FILL_ATTEMPTS:
             _sleep(FIELD_RETRY_DELAY, cancel)
 
-    # The value is never interpolated: one of these fields holds the password.
-    raise LoginFailed(f"No se pudo rellenar el campo '{field_id}' del formulario")
+    # The value is never interpolated: one of these fields holds a secret.
+    raise LoginFailed(f"No se pudo rellenar el campo '{label}' del formulario")
 
 
 def _assign_value_by_script(driver: WebDriver, field: WebElement, value: str) -> None:

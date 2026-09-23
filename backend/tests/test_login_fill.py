@@ -156,3 +156,28 @@ def test_click_falls_back_to_script_when_an_overlay_intercepts() -> None:
 
     assert element.native_clicks == 1
     assert len(driver.scripts) == 1
+
+
+def test_prompt_rejects_a_code_nobody_asked_for() -> None:
+    with pytest.raises(renfe.CodeNotRequested):
+        renfe.CodePrompt().submit("123456")
+
+
+def test_prompt_hands_the_code_to_the_waiting_bot() -> None:
+    prompt = renfe.CodePrompt()
+    prompt.request()
+    assert prompt.pending
+
+    prompt.submit("483920")
+    assert prompt.wait(threading.Event()) == "483920"
+    assert not prompt.pending
+
+
+def test_prompt_wait_aborts_on_cancellation() -> None:
+    prompt = renfe.CodePrompt()
+    prompt.request()
+    cancel = threading.Event()
+    cancel.set()
+
+    with pytest.raises(renfe.JobCancelled):
+        prompt.wait(cancel)

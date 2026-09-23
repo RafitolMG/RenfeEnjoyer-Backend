@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.bot.events import JobState
-from app.bot.renfe import SearchRequest, run_search
+from app.bot.renfe import CodePrompt, SearchRequest, run_search
 from app.bot.runner import JobConflict, JobManager
 
 
@@ -74,7 +74,13 @@ def test_invalid_journey_type_fails_before_opening_a_browser() -> None:
         abono="ABC",
     )
     with pytest.raises(ValueError, match="Invalid journey type"):
-        run_search(request, _NullReporter(), threading.Event(), threading.Event())
+        run_search(
+            request,
+            _NullReporter(),
+            threading.Event(),
+            threading.Event(),
+            CodePrompt(),
+        )
 
 
 class _NullReporter:
@@ -97,7 +103,7 @@ def test_progress_streams_over_the_websocket(
 ) -> None:
     """Covers the full path: worker thread -> event loop -> connected client."""
 
-    def fake_run_search(request, reporter, cancel, release) -> None:
+    def fake_run_search(request, reporter, cancel, release, code_prompt) -> None:
         reporter.state(JobState.POLLING, "Buscando plazas")
         reporter.attempt(1)
         reporter.log("Intento 1: tren no disponible, recargando")
@@ -137,7 +143,7 @@ def test_second_job_is_rejected_while_one_runs(
 ) -> None:
     started = threading.Event()
 
-    def blocking_run_search(request, reporter, cancel, release) -> None:
+    def blocking_run_search(request, reporter, cancel, release, code_prompt) -> None:
         reporter.state(JobState.RESERVED, "Plaza reservada")
         started.set()
         release.wait(timeout=5)
@@ -155,3 +161,85 @@ def test_second_job_is_rejected_while_one_runs(
 
     assert client.post("/api/jobs/current", json=payload).status_code == 409
     assert client.post("/api/jobs/current/release").status_code == 202
+
+
+def test_code_is_rejected_when_none_is_awaited(client: TestClient) -> None:
+    response = client.post("/api/jobs/current/code", json={"code": "123456"})
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize("code", ["12", "código!", "", "1234567890123"])
+def test_malformed_codes_are_rejected(client: TestClient, code: str) -> None:
+    assert client.post("/api/jobs/current/code", json={"code": code}).status_code == 422
+
+
+def test_verification_code_reaches_the_waiting_bot(
+    client: TestClient, profile: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bot parks on the prompt; an API request hands it the code from the UI."""
+    asked = threading.Event()
+    consumed = threading.Event()
+    received: list[str] = []
+
+    def fake_run_search(request, reporter, cancel, release, code_prompt) -> None:
+        code_prompt.request()
+        reporter.state(JobState.AWAITING_CODE, "Renfe pide un código de verificación")
+        asked.set()
+        received.append(code_prompt.wait(cancel))
+        consumed.set()
+
+    monkeypatch.setattr("app.bot.runner.run_search", fake_run_search)
+
+    started = client.post(
+        "/api/jobs/current",
+        json={
+            "user_id": profile["id"],
+            "departure_time": "07:30",
+            "journey_type": "ida",
+            "date": "01/10/2026",
+        },
+    )
+    assert started.status_code == 202
+    assert asked.wait(timeout=5)
+    assert client.get("/api/jobs/current").json()["state"] == "awaiting_code"
+
+    assert (
+        client.post("/api/jobs/current/code", json={"code": "483920"}).status_code == 202
+    )
+    assert consumed.wait(timeout=5)
+    assert received == ["483920"]
+
+
+def test_a_second_code_is_rejected_once_the_first_is_consumed(
+    client: TestClient, profile: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked = threading.Event()
+    consumed = threading.Event()
+
+    def fake_run_search(request, reporter, cancel, release, code_prompt) -> None:
+        code_prompt.request()
+        reporter.state(JobState.AWAITING_CODE, "Código requerido")
+        asked.set()
+        code_prompt.wait(cancel)
+        consumed.set()
+        release.wait(timeout=5)
+
+    monkeypatch.setattr("app.bot.runner.run_search", fake_run_search)
+    client.post(
+        "/api/jobs/current",
+        json={
+            "user_id": profile["id"],
+            "departure_time": "07:30",
+            "journey_type": "ida",
+            "date": "01/10/2026",
+        },
+    )
+    assert asked.wait(timeout=5)
+    assert (
+        client.post("/api/jobs/current/code", json={"code": "111111"}).status_code == 202
+    )
+    assert consumed.wait(timeout=5)
+
+    assert (
+        client.post("/api/jobs/current/code", json={"code": "222222"}).status_code == 409
+    )

@@ -6,7 +6,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.bot.events import TERMINAL_STATES, JobState
-from app.bot.renfe import JobCancelled, LoginFailed, SearchRequest, run_search
+from app.bot.renfe import (
+    CodePrompt,
+    JobCancelled,
+    LoginFailed,
+    SearchRequest,
+    run_search,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,7 @@ class JobManager:
         self._job: dict[str, Any] | None = None
         self._cancel = threading.Event()
         self._release = threading.Event()
+        self._code_prompt = CodePrompt()
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -43,6 +50,7 @@ class JobManager:
 
             self._cancel = threading.Event()
             self._release = threading.Event()
+            self._code_prompt = CodePrompt()
             self._history.clear()
             self._job = {
                 "state": JobState.STARTING,
@@ -59,7 +67,7 @@ class JobManager:
             }
             thread = threading.Thread(
                 target=self._run,
-                args=(request, self._cancel, self._release),
+                args=(request, self._cancel, self._release, self._code_prompt),
                 name="renfe-bot",
                 daemon=True,
             )
@@ -78,6 +86,12 @@ class JobManager:
             if self._job is None or self._job["state"] != JobState.RESERVED:
                 raise JobConflict("No hay ninguna reserva esperando confirmación")
             self._release.set()
+
+    def submit_code(self, code: str) -> None:
+        """Hand a verification code to the worker, which is parked waiting for it."""
+        with self._lock:
+            prompt = self._code_prompt
+        prompt.submit(code)
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -101,10 +115,11 @@ class JobManager:
         request: SearchRequest,
         cancel: threading.Event,
         release: threading.Event,
+        code_prompt: CodePrompt,
     ) -> None:
         reporter = _ManagerReporter(self)
         try:
-            run_search(request, reporter, cancel, release)
+            run_search(request, reporter, cancel, release, code_prompt)
             reporter.state(JobState.FINISHED, "Navegador cerrado")
         except JobCancelled:
             reporter.state(JobState.CANCELLED, "Búsqueda detenida")
