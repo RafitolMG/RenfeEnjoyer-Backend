@@ -1,4 +1,6 @@
+import hashlib
 import shutil
+from pathlib import Path
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -14,7 +16,18 @@ BROWSER_BINARIES = (
 )
 
 
-def build_chrome_driver() -> webdriver.Chrome:
+def profile_dir_for(account: str) -> Path:
+    """One browser profile per Renfe account.
+
+    A single shared profile would let a stored session leak across saved profiles: the
+    session check only sees that *a* session is open, not whose, so the bot would happily
+    search on the wrong account.
+    """
+    digest = hashlib.sha256(account.strip().lower().encode()).hexdigest()[:16]
+    return PROFILE_DIR / digest
+
+
+def build_chrome_driver(profile_dir: Path) -> webdriver.Chrome:
     """Build a Chrome/Chromium driver that works on both Windows and Linux.
 
     Linux distros ship the browser as `chromium` rather than `google-chrome`, which is
@@ -22,9 +35,9 @@ def build_chrome_driver() -> webdriver.Chrome:
     """
     options = Options()
     # A throwaway profile scores badly with Renfe's reCAPTCHA and drops the session on
-    # every run, so the browser keeps its state in one directory instead.
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    options.add_argument(f"--user-data-dir={PROFILE_DIR}")
+    # every run, so the browser keeps its state between searches.
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    options.add_argument(f"--user-data-dir={profile_dir}")
 
     for binary in BROWSER_BINARIES:
         path = shutil.which(binary)

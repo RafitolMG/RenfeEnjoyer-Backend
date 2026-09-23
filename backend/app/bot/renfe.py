@@ -18,7 +18,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from app.bot.driver import build_chrome_driver
+from app.bot.driver import build_chrome_driver, profile_dir_for
 from app.bot.events import JobState
 from app.config import OTP_SELECTOR, SELENIUM_TIMEOUT
 
@@ -141,7 +141,7 @@ def run_search(
         raise ValueError(f"Invalid journey type: {request.journey_type!r}")
 
     reporter.state(JobState.STARTING, "Abriendo el navegador")
-    driver = build_chrome_driver()
+    driver = build_chrome_driver(profile_dir_for(request.email))
     try:
         wait = WebDriverWait(driver, SELENIUM_TIMEOUT)
         _ensure_session(driver, wait, request, reporter, code_prompt, cancel)

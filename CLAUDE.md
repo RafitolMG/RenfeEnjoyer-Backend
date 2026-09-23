@@ -61,8 +61,11 @@ Key invariants:
 
 - **Only one job at a time.** Each job owns a visible browser window the user must interact with, so
   `start()` raises `JobConflict` (HTTP 409) while another is active.
-- **The browser profile is persistent** (`config.PROFILE_DIR`, passed as `--user-data-dir`), so the
-  usual path skips the login entirely and with it the captcha and the code. `_ensure_session` loads
+- **The browser profile is persistent and per-account.** `driver.profile_dir_for()` keys it on a
+  hash of the Renfe email under `config.PROFILE_DIR`, passed as `--user-data-dir`, so the usual path
+  skips the login entirely and with it the captcha and the code. One shared profile would be a
+  correctness bug, not just untidy: `_session_is_active` can only see that *a* session is open, not
+  whose, so the bot would search on whichever account logged in last. `_ensure_session` loads
   the passes page and checks whether the URL still holds `myPassesCard.do`: unauthenticated, Renfe
   bounces to its public homepage rather than to the login form, so looking for a login field there
   would never match. Whether Renfe's auth cookie survives a browser restart is unverified — a

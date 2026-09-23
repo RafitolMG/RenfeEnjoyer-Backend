@@ -55,20 +55,27 @@ async function run(action: () => Promise<typeof status.value>) {
 }
 
 async function loadSession() {
+  const id = selectedProfileId.value
+  if (id === null) {
+    sessionStored.value = false
+    return
+  }
   try {
-    sessionStored.value = (await api.getSession()).stored
+    sessionStored.value = (await api.getSession(id)).stored
   } catch {
     sessionStored.value = false
   }
 }
 
 async function clearSession() {
+  const id = selectedProfileId.value
+  if (id === null) return
   if (!window.confirm('¿Cerrar la sesión guardada de Renfe? La próxima búsqueda pedirá login.')) {
     return
   }
   error.value = ''
   try {
-    await api.clearSession()
+    await api.clearSession(id)
   } catch (cause) {
     error.value = (cause as Error).message
   }
@@ -76,6 +83,8 @@ async function clearSession() {
 }
 
 // The bot stores a session when it logs in, so re-check whenever a job ends.
+watch(selectedProfileId, loadSession)
+
 watch(
   () => status.value.state,
   (state) => {
@@ -102,7 +111,7 @@ onMounted(() => {
 
       <div class="session">
         <span class="session__state">
-          {{ sessionStored ? 'Sesión de Renfe guardada' : 'Sin sesión guardada' }}
+          {{ sessionStored ? 'Sesión guardada para este perfil' : 'Sin sesión guardada' }}
         </span>
         <button v-if="sessionStored" class="btn btn--ghost btn--small" @click="clearSession">
           Cerrar sesión

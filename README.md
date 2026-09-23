@@ -68,14 +68,18 @@ Dos advertencias:
 
 ## Sesión persistente
 
-El bot guarda el perfil del navegador en `backend/browser-profile/`, así que **normalmente no
-inicia sesión**: reutiliza la sesión anterior y se salta el login, el captcha y la verificación.
-Solo cuando la sesión caduca vuelve a pedirte esos pasos.
+El bot guarda el perfil del navegador, así que **normalmente no inicia sesión**: reutiliza la
+sesión anterior y se salta el login, el captcha y la verificación. Solo cuando la sesión caduca
+vuelve a pedirte esos pasos.
 
-La interfaz indica si hay sesión guardada y permite cerrarla para forzar un login nuevo:
+Hay **un perfil por cuenta de Renfe**, bajo `backend/browser-profile/<hash del correo>/`. Compartir
+uno solo haría que el bot buscase con la cuenta que hubiera iniciado sesión la última vez, no con
+la del perfil elegido.
+
+La interfaz indica si el perfil seleccionado tiene sesión guardada y permite cerrarla:
 
 ```bash
-curl -X DELETE http://<host>:8000/api/session
+curl -X DELETE http://<host>:8000/api/users/<id>/session
 ```
 
 Ese directorio contiene tu sesión de Renfe iniciada. Está en `.gitignore`, pero trátalo como una
