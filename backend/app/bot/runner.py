@@ -93,6 +93,10 @@ class JobManager:
             prompt = self._code_prompt
         prompt.submit(code)
 
+    def is_active(self) -> bool:
+        with self._lock:
+            return self._is_active()
+
     def status(self) -> dict[str, Any]:
         with self._lock:
             if self._job is None:

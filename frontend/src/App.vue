@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { api } from '@/api/client'
 import type { JourneyType, Profile } from '@/api/types'
@@ -15,6 +15,7 @@ const profiles = ref<Profile[]>([])
 const selectedProfileId = ref<number | null>(null)
 const dialogOpen = ref(false)
 const error = ref('')
+const sessionStored = ref(false)
 
 const busy = computed(() => occupiesBrowser(status.value.state))
 
@@ -53,7 +54,39 @@ async function run(action: () => Promise<typeof status.value>) {
   }
 }
 
-onMounted(loadProfiles)
+async function loadSession() {
+  try {
+    sessionStored.value = (await api.getSession()).stored
+  } catch {
+    sessionStored.value = false
+  }
+}
+
+async function clearSession() {
+  if (!window.confirm('¿Cerrar la sesión guardada de Renfe? La próxima búsqueda pedirá login.')) {
+    return
+  }
+  error.value = ''
+  try {
+    await api.clearSession()
+  } catch (cause) {
+    error.value = (cause as Error).message
+  }
+  await loadSession()
+}
+
+// The bot stores a session when it logs in, so re-check whenever a job ends.
+watch(
+  () => status.value.state,
+  (state) => {
+    if (!occupiesBrowser(state)) loadSession()
+  },
+)
+
+onMounted(() => {
+  loadProfiles()
+  loadSession()
+})
 </script>
 
 <template>
@@ -65,6 +98,15 @@ onMounted(loadProfiles)
           <h1 class="brand__name">Renfe Enjoyer</h1>
           <p class="brand__tagline">Caza plazas de abono automáticamente</p>
         </div>
+      </div>
+
+      <div class="session">
+        <span class="session__state">
+          {{ sessionStored ? 'Sesión de Renfe guardada' : 'Sin sesión guardada' }}
+        </span>
+        <button v-if="sessionStored" class="btn btn--ghost btn--small" @click="clearSession">
+          Cerrar sesión
+        </button>
       </div>
     </header>
 
@@ -108,10 +150,34 @@ onMounted(loadProfiles)
   margin-bottom: 28px;
 }
 
+.masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.session__state {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.btn--small {
+  padding: 6px 12px;
+  font-size: 13px;
 }
 
 .brand__mark {

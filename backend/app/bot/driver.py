@@ -4,7 +4,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
-from app.config import HEADLESS
+from app.config import HEADLESS, PROFILE_DIR
 
 BROWSER_BINARIES = (
     "google-chrome",
@@ -21,6 +21,11 @@ def build_chrome_driver() -> webdriver.Chrome:
     the only name Selenium looks for by default, so the binary is resolved explicitly.
     """
     options = Options()
+    # A throwaway profile scores badly with Renfe's reCAPTCHA and drops the session on
+    # every run, so the browser keeps its state in one directory instead.
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    options.add_argument(f"--user-data-dir={PROFILE_DIR}")
+
     for binary in BROWSER_BINARIES:
         path = shutil.which(binary)
         if path:

@@ -27,6 +27,9 @@ from app.config import OTP_SELECTOR, SELENIUM_TIMEOUT
 # number instead, so it will not work with these credentials.
 LOGIN_URL = "https://venta.renfe.com/vol/loginParticular.do?Idioma=es&Pais=ES"
 PASSES_URL = "https://venta.renfe.com/vol/myPassesCard.do"
+# Without a session Renfe bounces this page to its public homepage rather than to the
+# login form, so staying on the path is what tells us the session is still good.
+PASSES_PATH = "myPassesCard.do"
 HOME_URL_FRAGMENT = "venta.renfe.com/vol/home.do"
 
 JOURNEY_RADIO_IDS = {"ida": "journeyStationOrigin", "vuelta": "journeyStationDestin"}
@@ -141,7 +144,7 @@ def run_search(
     driver = build_chrome_driver()
     try:
         wait = WebDriverWait(driver, SELENIUM_TIMEOUT)
-        _login(driver, wait, request, reporter, code_prompt, cancel)
+        _ensure_session(driver, wait, request, reporter, code_prompt, cancel)
         _guard(cancel)
         _open_pass(driver, wait, request, reporter)
         _guard(cancel)
@@ -155,6 +158,31 @@ def run_search(
         _await_release(release, cancel)
     finally:
         driver.quit()
+
+
+def _ensure_session(
+    driver: WebDriver,
+    wait: WebDriverWait,
+    request: SearchRequest,
+    reporter: Reporter,
+    code_prompt: CodePrompt,
+    cancel: threading.Event,
+) -> None:
+    """Reuse the stored session, logging in only when it has expired."""
+    reporter.state(JobState.LOGGING_IN, "Comprobando la sesión guardada")
+    driver.get(PASSES_URL)
+    _dismiss_cookie_banner(driver, reporter)
+
+    if _session_is_active(driver):
+        reporter.log("Sesión reutilizada, no hace falta iniciar sesión")
+        return
+
+    reporter.log("No hay sesión válida, iniciando sesión")
+    _login(driver, wait, request, reporter, code_prompt, cancel)
+
+
+def _session_is_active(driver: WebDriver) -> bool:
+    return PASSES_PATH in driver.current_url
 
 
 def _login(

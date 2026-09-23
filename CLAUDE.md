@@ -61,6 +61,12 @@ Key invariants:
 
 - **Only one job at a time.** Each job owns a visible browser window the user must interact with, so
   `start()` raises `JobConflict` (HTTP 409) while another is active.
+- **The browser profile is persistent** (`config.PROFILE_DIR`, passed as `--user-data-dir`), so the
+  usual path skips the login entirely and with it the captcha and the code. `_ensure_session` loads
+  the passes page and checks whether the URL still holds `myPassesCard.do`: unauthenticated, Renfe
+  bounces to its public homepage rather than to the login form, so looking for a login field there
+  would never match. Whether Renfe's auth cookie survives a browser restart is unverified — a
+  session cookie would not, no matter the profile.
 - **Renfe's login is behind reCAPTCHA.** Measured against the live site, an automated session
   scores badly enough to get an image challenge in both headless and headed runs, so the login
   cannot be fully unattended. The bot does not try to solve it: `awaiting_human` hands the window

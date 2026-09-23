@@ -13,3 +13,6 @@ dist/
 
 # Local SQLite databases (hold Renfe credentials, never commit)
 *.db
+
+# Persistent Chrome profile: holds the logged-in Renfe session
+browser-profile/

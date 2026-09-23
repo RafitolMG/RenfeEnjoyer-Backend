@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import jobs, users
+from app.api import jobs, session, users
 from app.bot.runner import job_manager
 from app.config import CORS_ORIGINS, FRONTEND_DIST
 from app.db.session import init_db
@@ -35,6 +35,7 @@ app.add_middleware(
 
 app.include_router(users.router)
 app.include_router(jobs.router)
+app.include_router(session.router)
 
 
 @app.get("/api/health")

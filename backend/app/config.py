@@ -36,3 +36,7 @@ OTP_SELECTOR = os.getenv(
         )
     ),
 )
+
+# Persistent Chrome profile. Keeping the session between runs means the bot normally
+# skips the login altogether, and with it the captcha and the verification code.
+PROFILE_DIR = Path(os.getenv("RENFE_PROFILE_DIR", BASE_DIR / "browser-profile"))

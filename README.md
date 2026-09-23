@@ -66,6 +66,21 @@ Dos advertencias:
 - Desde el móvil puedes lanzar, seguir y detener una búsqueda, pero **la compra hay que rematarla
   en la máquina** donde corre el bot, porque es ahí donde se abre el navegador.
 
+## Sesión persistente
+
+El bot guarda el perfil del navegador en `backend/browser-profile/`, así que **normalmente no
+inicia sesión**: reutiliza la sesión anterior y se salta el login, el captcha y la verificación.
+Solo cuando la sesión caduca vuelve a pedirte esos pasos.
+
+La interfaz indica si hay sesión guardada y permite cerrarla para forzar un login nuevo:
+
+```bash
+curl -X DELETE http://<host>:8000/api/session
+```
+
+Ese directorio contiene tu sesión de Renfe iniciada. Está en `.gitignore`, pero trátalo como una
+credencial más.
+
 ## Captcha en el inicio de sesión
 
 Renfe protege el login con reCAPTCHA y una sesión automatizada suele recibir un reto de imágenes.

@@ -210,3 +210,17 @@ def test_hidden_captcha_frame_is_not_a_challenge() -> None:
 
 def test_no_captcha_frames_at_all() -> None:
     assert not renfe._captcha_is_showing(FrameDriver([]))
+
+
+class UrlDriver:
+    def __init__(self, url: str) -> None:
+        self.current_url = url
+
+
+def test_session_is_active_while_on_the_passes_page() -> None:
+    assert renfe._session_is_active(UrlDriver(renfe.PASSES_URL))
+
+
+def test_session_is_inactive_when_bounced_to_the_public_site() -> None:
+    """Renfe redirects to its homepage, not to the login form, when unauthenticated."""
+    assert not renfe._session_is_active(UrlDriver("https://www.renfe.com/es/es"))
