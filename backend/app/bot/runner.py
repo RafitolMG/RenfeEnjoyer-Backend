@@ -5,9 +5,9 @@ from collections import deque
 from datetime import UTC, datetime
 from typing import Any
 
+from app.bot.errors import BotError
 from app.bot.events import TERMINAL_STATES, JobState
 from app.bot.renfe import (
-    BotError,
     Interaction,
     JobCancelled,
     PromptNotOpen,

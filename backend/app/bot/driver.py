@@ -1,12 +1,18 @@
 import hashlib
+import logging
+import os
 import shutil
 from pathlib import Path
 
 from selenium import webdriver
+from selenium.common.exceptions import SessionNotCreatedException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
+from app.bot.errors import BotError
 from app.config import HEADLESS, PROFILE_DIR
+
+logger = logging.getLogger(__name__)
 
 BROWSER_BINARIES = (
     "google-chrome",
@@ -14,6 +20,10 @@ BROWSER_BINARIES = (
     "chromium",
     "chromium-browser",
 )
+
+
+class BrowserUnavailable(BotError):
+    """Raised when the browser exits before Selenium can drive it."""
 
 
 def profile_dir_for(account: str) -> Path:
@@ -49,7 +59,35 @@ def build_chrome_driver(profile_dir: Path) -> webdriver.Chrome:
     if HEADLESS:
         options.add_argument("--headless=new")
 
-    driver_path = shutil.which("chromedriver")
-    if driver_path:
-        return webdriver.Chrome(service=Service(driver_path), options=options)
-    return webdriver.Chrome(options=options)
+    # Without a system chromedriver, a None path lets Selenium Manager fetch one.
+    service = Service(shutil.which("chromedriver"), env=browser_environment())
+    try:
+        return webdriver.Chrome(service=service, options=options)
+    except SessionNotCreatedException as exc:
+        logger.warning("Browser failed to start: %s", exc.msg)
+        raise BrowserUnavailable(
+            "No se pudo abrir el navegador. Lo más habitual es que no haya una sesión "
+            "de escritorio iniciada en el equipo donde corre el bot; el detalle está en "
+            "el registro del servidor."
+        ) from exc
+
+
+def browser_environment() -> dict[str, str]:
+    """Environment for the browser, pointed at the desktop session when it lacks one.
+
+    The server may be started outside the desktop (a terminal, a service, SSH) and then
+    has no display for a visible browser, which exits the moment it starts. When a
+    Wayland session is running for this user, the browser opens its window there.
+    """
+    env = dict(os.environ)
+    if HEADLESS or env.get("WAYLAND_DISPLAY") or env.get("DISPLAY"):
+        return env
+
+    runtime_dir = Path(env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+    sockets = sorted(
+        path.name for path in runtime_dir.glob("wayland-*") if path.is_socket()
+    )
+    if sockets:
+        env["XDG_RUNTIME_DIR"] = str(runtime_dir)
+        env["WAYLAND_DISPLAY"] = sockets[0]
+    return env

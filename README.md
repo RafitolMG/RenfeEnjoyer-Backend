@@ -58,7 +58,11 @@ de Tailscale de la máquina. Queda accesible en `http://<tu-ip-de-tailscale>:800
 Se ata a la IP de Tailscale en concreto, no a `0.0.0.0`, así que **no** queda expuesto en la red
 local. Sobrescribe el destino con `RENFE_HOST` y `RENFE_PORT` si lo necesitas.
 
-Dos advertencias:
+El bot abre el navegador en el escritorio del equipo, así que **tiene que haber una sesión de
+escritorio iniciada** aunque tú lo uses desde otro dispositivo. Si el servidor se arrancó desde una
+terminal sin pantalla, el bot localiza la sesión Wayland abierta y abre la ventana ahí.
+
+Advertencias:
 
 - **La API no tiene autenticación.** Cualquiera con acceso a tu tailnet puede leer los perfiles y
   lanzar búsquedas. Vale mientras el tailnet sean solo equipos tuyos.

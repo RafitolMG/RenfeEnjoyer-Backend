@@ -20,6 +20,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from app.bot.driver import build_chrome_driver, profile_dir_for
+from app.bot.errors import BotError
 from app.bot.events import JobState
 from app.config import OTP_SELECTOR, SELENIUM_TIMEOUT
 
@@ -69,10 +70,6 @@ HUMAN_STEP_TIMEOUT = 300.0
 
 class JobCancelled(Exception):
     """Raised when the user stops a running search."""
-
-
-class BotError(Exception):
-    """A failure whose message is already phrased for the user."""
 
 
 class LoginFailed(BotError):

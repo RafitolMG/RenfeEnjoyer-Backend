@@ -140,6 +140,12 @@ Key invariants:
 - `build_chrome_driver()` resolves the browser binary by name (`google-chrome`, `chromium`, …) because
   Selenium only looks for `google-chrome` by default, and falls back to Selenium Manager when no system
   `chromedriver` is on PATH. On Arch both come from the `chromium` and `chromedriver` packages.
+- **The server may run outside the desktop session** — `serve-tailscale.sh` launched from a terminal, a
+  service, SSH — and a visible browser then has no display and exits on launch (`SessionNotCreatedException:
+  Chrome instance exited`). `driver.browser_environment()` points the browser at the user's Wayland socket in
+  `XDG_RUNTIME_DIR` when neither `WAYLAND_DISPLAY` nor `DISPLAY` is set. Selenium's `Service(env=...)`
+  *replaces* the process environment rather than extending it, so the whole mapping is passed. With no
+  desktop session logged in at all there is nothing to open on; that surfaces as `BrowserUnavailable`.
 - **Headless is opt-in** (`RENFE_HEADLESS=1`) and only useful for debugging: the user has to see the window
   to finish the purchase.
 - System Python on Arch is PEP 668 externally-managed — always install into a venv.
