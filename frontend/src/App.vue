@@ -31,27 +31,20 @@ async function loadProfiles() {
   }
 }
 
-async function startSearch(input: {
-  departure_time: string
-  journey_type: JourneyType
-  date: string
-}) {
-  if (selectedProfileId.value === null) return
+/** Fire a job action; the resulting state arrives through the job stream. */
+async function run(action: () => Promise<unknown>) {
   error.value = ''
   try {
-    status.value = await api.startJob({ user_id: selectedProfileId.value, ...input })
+    await action()
   } catch (cause) {
     error.value = (cause as Error).message
   }
 }
 
-async function run(action: () => Promise<typeof status.value>) {
-  error.value = ''
-  try {
-    status.value = await action()
-  } catch (cause) {
-    error.value = (cause as Error).message
-  }
+function startSearch(input: { journey_type: JourneyType; date: string }) {
+  const userId = selectedProfileId.value
+  if (userId === null) return
+  run(() => api.startJob({ user_id: userId, ...input }))
 }
 
 async function loadSession() {
@@ -82,9 +75,9 @@ async function clearSession() {
   await loadSession()
 }
 
-// The bot stores a session when it logs in, so re-check whenever a job ends.
 watch(selectedProfileId, loadSession)
 
+// The bot stores a session when it logs in, so re-check whenever a job ends.
 watch(
   () => status.value.state,
   (state) => {
@@ -136,6 +129,7 @@ onMounted(() => {
         @stop="run(api.stopJob)"
         @release="run(api.releaseJob)"
         @code="(value) => run(() => api.submitCode(value))"
+        @train="(departure) => run(() => api.chooseTrain(departure))"
       />
     </main>
 
@@ -157,9 +151,6 @@ onMounted(() => {
 
 .masthead {
   margin-bottom: 28px;
-}
-
-.masthead {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -224,7 +215,9 @@ onMounted(() => {
 
 @media (max-width: 860px) {
   .layout {
-    grid-template-columns: 1fr;
+    /* A bare 1fr has an implicit min of min-content, so a wide table would stretch
+       the page instead of scrolling inside its own container. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

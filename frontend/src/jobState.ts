@@ -8,6 +8,7 @@ export const JOB_STATE_LABELS: Record<JobState, string> = {
   awaiting_human: 'Captcha pendiente',
   awaiting_code: 'Código requerido',
   searching: 'Configurando',
+  awaiting_train: 'Elige tren',
   polling: 'Buscando plazas',
   reserved: 'Plaza reservada',
   finished: 'Finalizado',
@@ -23,6 +24,7 @@ export const JOB_STATE_TONES: Record<JobState, string> = {
   awaiting_human: 'warning',
   awaiting_code: 'warning',
   searching: 'info',
+  awaiting_train: 'info',
   polling: 'warning',
   reserved: 'success',
   finished: 'muted',
@@ -34,6 +36,7 @@ export const JOB_STATE_TONES: Record<JobState, string> = {
 const WAITING_ON_USER: readonly JobState[] = [
   'awaiting_human',
   'awaiting_code',
+  'awaiting_train',
   'reserved',
 ]
 

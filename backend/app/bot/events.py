@@ -8,6 +8,7 @@ class JobState(StrEnum):
     AWAITING_HUMAN = "awaiting_human"
     AWAITING_CODE = "awaiting_code"
     SEARCHING = "searching"
+    AWAITING_TRAIN = "awaiting_train"
     POLLING = "polling"
     RESERVED = "reserved"
     FINISHED = "finished"

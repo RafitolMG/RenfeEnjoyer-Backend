@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.bot.events import JobState
-from app.bot.renfe import CodePrompt, SearchRequest, run_search
+from app.bot.renfe import Interaction, SearchRequest, run_search
 from app.bot.runner import JobConflict, JobManager
 
 
@@ -74,19 +74,14 @@ def test_invalid_journey_type_fails_before_opening_a_browser() -> None:
         abono="ABC",
     )
     with pytest.raises(ValueError, match="Invalid journey type"):
-        run_search(
-            request,
-            _NullReporter(),
-            threading.Event(),
-            threading.Event(),
-            CodePrompt(),
-        )
+        run_search(request, _NullReporter(), Interaction())
 
 
 class _NullReporter:
     def state(self, state: JobState, message: str) -> None: ...
     def log(self, message: str) -> None: ...
     def attempt(self, count: int) -> None: ...
+    def trains(self, trains: list) -> None: ...
 
 
 def test_stream_replays_current_state_on_connect(client: TestClient) -> None:
@@ -103,7 +98,7 @@ def test_progress_streams_over_the_websocket(
 ) -> None:
     """Covers the full path: worker thread -> event loop -> connected client."""
 
-    def fake_run_search(request, reporter, cancel, release, code_prompt) -> None:
+    def fake_run_search(request, reporter, interaction) -> None:
         reporter.state(JobState.POLLING, "Buscando plazas")
         reporter.attempt(1)
         reporter.log("Intento 1: tren no disponible, recargando")
@@ -132,10 +127,16 @@ def test_progress_streams_over_the_websocket(
             if event.get("state") in {"finished", "failed"}:
                 break
 
-    assert [e["type"] for e in received] == ["state", "attempt", "log", "state"]
-    assert received[0]["state"] == "polling"
-    assert received[1]["attempts"] == 1
-    assert received[-1]["state"] == "finished"
+    # A fresh snapshot opens every job, so clients drop the previous job's log.
+    reset, *progress = received
+    assert reset["type"] == "snapshot"
+    assert reset["status"]["search"]["username"] == "demo"
+    assert reset["events"] == []
+
+    assert [e["type"] for e in progress] == ["state", "attempt", "log", "state"]
+    assert progress[0]["state"] == "polling"
+    assert progress[1]["attempts"] == 1
+    assert progress[-1]["state"] == "finished"
 
 
 def test_second_job_is_rejected_while_one_runs(
@@ -143,10 +144,10 @@ def test_second_job_is_rejected_while_one_runs(
 ) -> None:
     started = threading.Event()
 
-    def blocking_run_search(request, reporter, cancel, release, code_prompt) -> None:
+    def blocking_run_search(request, reporter, interaction) -> None:
         reporter.state(JobState.RESERVED, "Plaza reservada")
         started.set()
-        release.wait(timeout=5)
+        interaction.release.wait(timeout=5)
 
     monkeypatch.setattr("app.bot.runner.run_search", blocking_run_search)
 
@@ -181,11 +182,11 @@ def test_verification_code_reaches_the_waiting_bot(
     consumed = threading.Event()
     received: list[str] = []
 
-    def fake_run_search(request, reporter, cancel, release, code_prompt) -> None:
-        code_prompt.request()
+    def fake_run_search(request, reporter, interaction) -> None:
+        interaction.code.request()
         reporter.state(JobState.AWAITING_CODE, "Renfe pide un código de verificación")
         asked.set()
-        received.append(code_prompt.wait(cancel))
+        received.append(interaction.code.wait(interaction.cancel))
         consumed.set()
 
     monkeypatch.setattr("app.bot.runner.run_search", fake_run_search)
@@ -216,13 +217,13 @@ def test_a_second_code_is_rejected_once_the_first_is_consumed(
     asked = threading.Event()
     consumed = threading.Event()
 
-    def fake_run_search(request, reporter, cancel, release, code_prompt) -> None:
-        code_prompt.request()
+    def fake_run_search(request, reporter, interaction) -> None:
+        interaction.code.request()
         reporter.state(JobState.AWAITING_CODE, "Código requerido")
         asked.set()
-        code_prompt.wait(cancel)
+        interaction.code.wait(interaction.cancel)
         consumed.set()
-        release.wait(timeout=5)
+        interaction.release.wait(timeout=5)
 
     monkeypatch.setattr("app.bot.runner.run_search", fake_run_search)
     client.post(

@@ -159,12 +159,12 @@ def test_click_falls_back_to_script_when_an_overlay_intercepts() -> None:
 
 
 def test_prompt_rejects_a_code_nobody_asked_for() -> None:
-    with pytest.raises(renfe.CodeNotRequested):
-        renfe.CodePrompt().submit("123456")
+    with pytest.raises(renfe.PromptNotOpen):
+        renfe.ValuePrompt().submit("123456")
 
 
 def test_prompt_hands_the_code_to_the_waiting_bot() -> None:
-    prompt = renfe.CodePrompt()
+    prompt = renfe.ValuePrompt()
     prompt.request()
     assert prompt.pending
 
@@ -174,7 +174,7 @@ def test_prompt_hands_the_code_to_the_waiting_bot() -> None:
 
 
 def test_prompt_wait_aborts_on_cancellation() -> None:
-    prompt = renfe.CodePrompt()
+    prompt = renfe.ValuePrompt()
     prompt.request()
     cancel = threading.Event()
     cancel.set()

@@ -1,8 +1,9 @@
+import re
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Protocol, TypedDict
 
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
@@ -34,6 +35,10 @@ HOME_URL_FRAGMENT = "venta.renfe.com/vol/home.do"
 
 JOURNEY_RADIO_IDS = {"ida": "journeyStationOrigin", "vuelta": "journeyStationDestin"}
 
+RESULT_ROW_SELECTOR = "tr[id^='row']"
+DEPARTURE_LABEL = "Salida"
+TIME_PATTERN = re.compile(r"\b(\d{1,2}:\d{2})\b")
+
 CONFIRMATION_LOCATOR = (
     By.CSS_SELECTOR,
     ".paso4-enviar-billetes-passbook-boton-texto.semibold",
@@ -51,7 +56,7 @@ FIELD_FILL_ATTEMPTS = 4
 FIELD_RETRY_DELAY = 0.5
 
 LOGIN_POLL_INTERVAL = 1.0
-CODE_WAIT_POLL = 0.5
+PROMPT_WAIT_POLL = 0.5
 
 # Renfe guards the login with reCAPTCHA, which scores an automated session poorly and
 # shows an image challenge. The bot cannot answer it, so it hands the window over and
@@ -66,58 +71,82 @@ class JobCancelled(Exception):
     """Raised when the user stops a running search."""
 
 
-class LoginFailed(Exception):
+class BotError(Exception):
+    """A failure whose message is already phrased for the user."""
+
+
+class LoginFailed(BotError):
     """Raised when the Renfe login does not complete."""
 
 
-class CodeNotRequested(Exception):
-    """Raised when a verification code is submitted while none is being awaited."""
+class NoTrainsListed(BotError):
+    """Raised when the results page offers nothing to choose from."""
 
 
-class CodePrompt:
-    """Parks the bot while the user supplies a verification code.
+class PromptNotOpen(Exception):
+    """Raised when a value is submitted while the bot is not waiting for one."""
+
+
+class ValuePrompt:
+    """Parks the bot while the user supplies a value from the interface.
 
     Mirrors the release handshake: the worker thread blocks in `wait` while an API
-    request fills the value in from the interface.
+    request fills the value in.
     """
 
     def __init__(self) -> None:
         self._requested = threading.Event()
         self._supplied = threading.Event()
-        self._code = ""
+        self._value = ""
 
     @property
     def pending(self) -> bool:
         return self._requested.is_set() and not self._supplied.is_set()
 
     def request(self) -> None:
-        self._code = ""
+        self._value = ""
         self._supplied.clear()
         self._requested.set()
 
-    def submit(self, code: str) -> None:
+    def submit(self, value: str) -> None:
         if not self.pending:
-            raise CodeNotRequested("Ahora mismo no se espera ningún código")
-        self._code = code
+            raise PromptNotOpen("El bot no está esperando ese dato ahora mismo")
+        self._value = value
         self._supplied.set()
 
     def wait(self, cancel: threading.Event) -> str:
-        while not self._supplied.wait(CODE_WAIT_POLL):
+        while not self._supplied.wait(PROMPT_WAIT_POLL):
             if cancel.is_set():
                 raise JobCancelled
         self._requested.clear()
-        return self._code
+        return self._value
+
+
+@dataclass(frozen=True)
+class Interaction:
+    """Everything the worker uses to hand control to the user and take it back."""
+
+    cancel: threading.Event = field(default_factory=threading.Event)
+    release: threading.Event = field(default_factory=threading.Event)
+    code: ValuePrompt = field(default_factory=ValuePrompt)
+    train: ValuePrompt = field(default_factory=ValuePrompt)
+
+
+class Train(TypedDict):
+    departure: str
+    cells: dict[str, str]
 
 
 class Reporter(Protocol):
     def state(self, state: JobState, message: str) -> None: ...
     def log(self, message: str) -> None: ...
     def attempt(self, count: int) -> None: ...
+    def trains(self, trains: list[Train]) -> None: ...
 
 
 @dataclass(frozen=True)
 class SearchRequest:
-    departure_time: str
+    departure_time: str | None
     journey_type: str
     date: str
     email: str
@@ -126,16 +155,12 @@ class SearchRequest:
 
 
 def run_search(
-    request: SearchRequest,
-    reporter: Reporter,
-    cancel: threading.Event,
-    release: threading.Event,
-    code_prompt: CodePrompt,
+    request: SearchRequest, reporter: Reporter, interaction: Interaction
 ) -> None:
     """Drive a full booking attempt, blocking until the user releases the browser.
 
-    Runs on a worker thread. `cancel` aborts at the next checkpoint; `release` signals
-    that the user has finished the purchase and the browser may be closed.
+    Runs on a worker thread. Without a departure time in the request, the bot lists the
+    day's trains and waits for the user to pick one before hunting for a seat.
     """
     if request.journey_type not in JOURNEY_RADIO_IDS:
         raise ValueError(f"Invalid journey type: {request.journey_type!r}")
@@ -144,18 +169,22 @@ def run_search(
     driver = build_chrome_driver(profile_dir_for(request.email))
     try:
         wait = WebDriverWait(driver, SELENIUM_TIMEOUT)
-        _ensure_session(driver, wait, request, reporter, code_prompt, cancel)
-        _guard(cancel)
+        _ensure_session(driver, wait, request, reporter, interaction)
+        _guard(interaction.cancel)
         _open_pass(driver, wait, request, reporter)
-        _guard(cancel)
+        _guard(interaction.cancel)
         _submit_search(driver, wait, request, reporter)
-        _poll_for_seat(driver, wait, request, reporter, cancel)
+
+        departure = request.departure_time or _choose_train(
+            driver, wait, reporter, interaction
+        )
+        _poll_for_seat(driver, wait, departure, reporter, interaction.cancel)
 
         reporter.state(
             JobState.RESERVED,
             "Plaza reservada. Completa la compra en la ventana del navegador.",
         )
-        _await_release(release, cancel)
+        _await_release(interaction.release, interaction.cancel)
     finally:
         driver.quit()
 
@@ -165,8 +194,7 @@ def _ensure_session(
     wait: WebDriverWait,
     request: SearchRequest,
     reporter: Reporter,
-    code_prompt: CodePrompt,
-    cancel: threading.Event,
+    interaction: Interaction,
 ) -> None:
     """Reuse the stored session, logging in only when it has expired."""
     reporter.state(JobState.LOGGING_IN, "Comprobando la sesión guardada")
@@ -178,7 +206,7 @@ def _ensure_session(
         return
 
     reporter.log("No hay sesión válida, iniciando sesión")
-    _login(driver, wait, request, reporter, code_prompt, cancel)
+    _login(driver, wait, request, reporter, interaction)
 
 
 def _session_is_active(driver: WebDriver) -> bool:
@@ -190,9 +218,9 @@ def _login(
     wait: WebDriverWait,
     request: SearchRequest,
     reporter: Reporter,
-    code_prompt: CodePrompt,
-    cancel: threading.Event,
+    interaction: Interaction,
 ) -> None:
+    cancel = interaction.cancel
     reporter.state(JobState.LOGGING_IN, "Iniciando sesión en Renfe")
     driver.get(LOGIN_URL)
     _dismiss_cookie_banner(driver, reporter)
@@ -201,18 +229,15 @@ def _login(
     fill_field(driver, wait, "pass-login", request.password, cancel)
 
     _click(driver, wait.until(EC.element_to_be_clickable((By.ID, "loginButtonId"))))
-    _await_session(driver, wait, reporter, code_prompt, cancel)
+    _await_session(driver, reporter, interaction)
     reporter.log("Sesión iniciada")
 
 
 def _await_session(
-    driver: WebDriver,
-    wait: WebDriverWait,
-    reporter: Reporter,
-    code_prompt: CodePrompt,
-    cancel: threading.Event,
+    driver: WebDriver, reporter: Reporter, interaction: Interaction
 ) -> None:
     """Wait for the session, answering a verification step if Renfe asks for one."""
+    cancel = interaction.cancel
     deadline = time.monotonic() + SELENIUM_TIMEOUT
     announced_captcha = False
     while time.monotonic() < deadline:
@@ -240,7 +265,7 @@ def _await_session(
 
         field = _find_otp_field(driver)
         if field is not None:
-            _answer_verification(driver, reporter, code_prompt, cancel)
+            _answer_verification(driver, reporter, interaction)
             # The code was accepted or rejected; give the next page its own budget.
             deadline = time.monotonic() + SELENIUM_TIMEOUT
             continue
@@ -266,17 +291,15 @@ def _find_otp_field(driver: WebDriver) -> WebElement | None:
 
 
 def _answer_verification(
-    driver: WebDriver,
-    reporter: Reporter,
-    code_prompt: CodePrompt,
-    cancel: threading.Event,
+    driver: WebDriver, reporter: Reporter, interaction: Interaction
 ) -> None:
-    code_prompt.request()
+    cancel = interaction.cancel
+    interaction.code.request()
     reporter.state(
         JobState.AWAITING_CODE,
         "Renfe pide un código de verificación. Introdúcelo para continuar.",
     )
-    code = code_prompt.wait(cancel)
+    code = interaction.code.wait(cancel)
 
     reporter.state(JobState.LOGGING_IN, "Enviando el código de verificación")
 
@@ -427,16 +450,68 @@ def _submit_search(
     _js_click(driver, driver.find_element(By.ID, "submitSiguiente"))
 
 
+def _choose_train(
+    driver: WebDriver, wait: WebDriverWait, reporter: Reporter, interaction: Interaction
+) -> str:
+    try:
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, RESULT_ROW_SELECTOR)))
+    except TimeoutException:
+        raise NoTrainsListed(
+            "Renfe no ha devuelto trenes para ese día y trayecto"
+        ) from None
+
+    trains = list_trains(driver)
+    if not trains:
+        raise NoTrainsListed("Renfe no ha devuelto trenes para ese día y trayecto")
+
+    interaction.train.request()
+    reporter.trains(trains)
+    reporter.state(
+        JobState.AWAITING_TRAIN, f"Elige uno de los {len(trains)} trenes del día."
+    )
+    departure = interaction.train.wait(interaction.cancel)
+    reporter.log(f"Tren elegido: salida a las {departure}")
+    return departure
+
+
+def list_trains(driver: WebDriver) -> list[Train]:
+    """Read the results table without assuming its columns.
+
+    Only the departure cell is relied on, because polling matches on it; every other
+    `data-label` cell is passed through for the interface to show as-is.
+    """
+    trains: list[Train] = []
+    seen: set[str] = set()
+    for row in driver.find_elements(By.CSS_SELECTOR, RESULT_ROW_SELECTOR):
+        try:
+            cells = {
+                label: " ".join((cell.get_attribute("textContent") or "").split())
+                for cell in row.find_elements(By.CSS_SELECTOR, "td[data-label]")
+                if (label := cell.get_attribute("data-label"))
+            }
+        except StaleElementReferenceException:
+            continue
+
+        match = TIME_PATTERN.search(cells.get(DEPARTURE_LABEL, ""))
+        # Polling tells trains apart by departure time alone, so a repeated time would
+        # offer a choice the bot cannot honour.
+        if match is None or match.group(1) in seen:
+            continue
+        seen.add(match.group(1))
+        trains.append(Train(departure=match.group(1), cells=cells))
+    return trains
+
+
 def _poll_for_seat(
     driver: WebDriver,
     wait: WebDriverWait,
-    request: SearchRequest,
+    departure_time: str,
     reporter: Reporter,
     cancel: threading.Event,
 ) -> None:
-    reporter.state(JobState.POLLING, f"Buscando plazas para las {request.departure_time}")
+    reporter.state(JobState.POLLING, f"Buscando plazas para las {departure_time}")
     row_xpath = (
-        f"//td[@data-label='Salida' and contains(text(), '{request.departure_time}')]"
+        f"//td[@data-label='{DEPARTURE_LABEL}' and contains(text(), '{departure_time}')]"
         "/ancestor::tr"
     )
 

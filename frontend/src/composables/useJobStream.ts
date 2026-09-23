@@ -1,12 +1,17 @@
 import { onUnmounted, ref, shallowRef } from 'vue'
 
-import type { JobEvent, JobSnapshot, JobStatus } from '@/api/types'
+import type { JobEvent, JobStatus, StreamMessage } from '@/api/types'
 
 const RECONNECT_DELAY_MS = 2000
 const MAX_LOG_ENTRIES = 200
 
 const IDLE_STATUS: JobStatus = { state: 'idle', message: 'Sin búsquedas activas' }
 
+/**
+ * The job stream is the only source of truth for job state. Action endpoints also
+ * return a status, but applying it could overwrite a newer state that the socket had
+ * already delivered, so callers should ignore it.
+ */
 export function useJobStream() {
   const status = ref<JobStatus>({ ...IDLE_STATUS })
   const events = ref<JobEvent[]>([])
@@ -26,13 +31,7 @@ export function useJobStream() {
     }
 
     ws.onmessage = (message) => {
-      const payload = JSON.parse(message.data) as JobSnapshot | JobEvent
-      if (payload.type === 'snapshot') {
-        status.value = payload.status
-        events.value = payload.events
-        return
-      }
-      applyEvent(payload)
+      apply(JSON.parse(message.data) as StreamMessage)
     }
 
     ws.onclose = () => {
@@ -43,14 +42,26 @@ export function useJobStream() {
     }
   }
 
-  function applyEvent(event: JobEvent) {
-    if (event.type === 'state') {
-      status.value = { ...status.value, state: event.state, message: event.message }
-    } else if (event.type === 'attempt') {
-      status.value = { ...status.value, attempts: event.attempts }
+  function apply(message: StreamMessage) {
+    switch (message.type) {
+      case 'snapshot':
+        status.value = message.status
+        events.value = message.events
+        return
+      case 'trains':
+        status.value = { ...status.value, trains: message.trains }
+        return
+      case 'search':
+        status.value = { ...status.value, search: message.search }
+        return
+      case 'state':
+        status.value = { ...status.value, state: message.state, message: message.message }
+        break
+      case 'attempt':
+        status.value = { ...status.value, attempts: message.attempts }
+        break
     }
-
-    events.value = [...events.value, event].slice(-MAX_LOG_ENTRIES)
+    events.value = [...events.value, message].slice(-MAX_LOG_ENTRIES)
   }
 
   function disconnect() {

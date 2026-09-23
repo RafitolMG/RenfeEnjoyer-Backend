@@ -57,4 +57,10 @@ export const api = {
     }),
 
   releaseJob: () => request<JobStatus>('/jobs/current/release', { method: 'POST' }),
+
+  chooseTrain: (departureTime: string) =>
+    request<JobStatus>('/jobs/current/train', {
+      method: 'POST',
+      body: JSON.stringify({ departure_time: departureTime }),
+    }),
 }

@@ -11,26 +11,20 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:selectedProfileId', value: number | null): void
-  (e: 'submit', value: { departure_time: string; journey_type: JourneyType; date: string }): void
+  (e: 'submit', value: { journey_type: JourneyType; date: string }): void
   (e: 'manage'): void
 }>()
 
-const departureTime = ref('')
 const journeyType = ref<JourneyType>('ida')
 const date = ref('')
 
 const canSubmit = computed(
-  () =>
-    !props.busy &&
-    props.selectedProfileId !== null &&
-    departureTime.value !== '' &&
-    date.value !== '',
+  () => !props.busy && props.selectedProfileId !== null && date.value !== '',
 )
 
 function onSubmit() {
   if (!canSubmit.value) return
   emit('submit', {
-    departure_time: departureTime.value,
     journey_type: journeyType.value,
     date: toRenfeDate(date.value),
   })
@@ -75,11 +69,6 @@ function toRenfeDate(isoDate: string): string {
       </div>
 
       <div class="field">
-        <label class="field__label" for="departure">Hora de salida</label>
-        <input id="departure" v-model="departureTime" class="input" type="time" required />
-      </div>
-
-      <div class="field">
         <label class="field__label" for="journey">Trayecto</label>
         <select id="journey" v-model="journeyType" class="select">
           <option value="ida">Ida</option>
@@ -87,14 +76,14 @@ function toRenfeDate(isoDate: string): string {
         </select>
       </div>
 
-      <div class="field field--wide">
+      <div class="field">
         <label class="field__label" for="date">Fecha</label>
         <input id="date" v-model="date" class="input" type="date" required />
       </div>
     </div>
 
     <button type="submit" class="btn btn--primary submit" :disabled="!canSubmit">
-      {{ busy ? 'Búsqueda en curso…' : 'Buscar plazas' }}
+      {{ busy ? 'Búsqueda en curso…' : 'Ver trenes del día' }}
     </button>
 
     <p v-if="profiles.length === 0" class="hint">

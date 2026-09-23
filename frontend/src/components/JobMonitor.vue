@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 
 import type { JobEvent, JobStatus } from '@/api/types'
 import StatusBadge from '@/components/StatusBadge.vue'
+import TrainPicker from '@/components/TrainPicker.vue'
 import { occupiesBrowser } from '@/jobState'
 
 const props = defineProps<{
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   (e: 'stop'): void
   (e: 'release'): void
   (e: 'code', value: string): void
+  (e: 'train', departure: string): void
 }>()
 
 const logElement = ref<HTMLElement | null>(null)
@@ -23,6 +25,7 @@ const code = ref('')
 const isReserved = computed(() => props.status.state === 'reserved')
 const needsCode = computed(() => props.status.state === 'awaiting_code')
 const needsHuman = computed(() => props.status.state === 'awaiting_human')
+const needsTrain = computed(() => props.status.state === 'awaiting_train')
 const canStop = computed(() => occupiesBrowser(props.status.state))
 const attempts = computed(() => props.status.attempts ?? 0)
 
@@ -73,7 +76,7 @@ function formatTime(timestamp: string): string {
 
     <dl v-if="status.search" class="summary">
       <div><dt>Perfil</dt><dd>{{ status.search.username }}</dd></div>
-      <div><dt>Salida</dt><dd>{{ status.search.departure_time }}</dd></div>
+      <div><dt>Salida</dt><dd>{{ status.search.departure_time ?? 'Por elegir' }}</dd></div>
       <div><dt>Trayecto</dt><dd>{{ status.search.journey_type }}</dd></div>
       <div><dt>Fecha</dt><dd>{{ status.search.date }}</dd></div>
     </dl>
@@ -82,6 +85,12 @@ function formatTime(timestamp: string): string {
       <span class="attempts__value">{{ attempts }}</span>
       <span class="attempts__label">recargas de la página</span>
     </p>
+
+    <TrainPicker
+      v-if="needsTrain && status.trains?.length"
+      :trains="status.trains"
+      @choose="(departure) => emit('train', departure)"
+    />
 
     <div v-if="needsHuman" class="callout callout--action">
       <strong>Renfe pide resolver un captcha.</strong>

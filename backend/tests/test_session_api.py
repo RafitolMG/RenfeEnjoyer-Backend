@@ -51,10 +51,10 @@ def test_session_is_not_cleared_while_a_search_runs(
     """The running browser holds the profile open, so clearing it would break the job."""
     started = threading.Event()
 
-    def blocking_run_search(request, reporter, cancel, release, code_prompt) -> None:
+    def blocking_run_search(request, reporter, interaction) -> None:
         reporter.state(JobState.POLLING, "Buscando plazas")
         started.set()
-        release.wait(timeout=5)
+        interaction.release.wait(timeout=5)
 
     monkeypatch.setattr("app.bot.runner.run_search", blocking_run_search)
     client.post(

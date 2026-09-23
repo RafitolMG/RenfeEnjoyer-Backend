@@ -119,12 +119,24 @@ RENFE_OTP_SELECTOR="input#el-id-real" ./scripts/serve-tailscale.sh
 
 ## Cómo funciona una búsqueda
 
-1. Eliges un perfil, la hora de salida, el trayecto y la fecha.
-2. El backend lanza el bot en un hilo aparte: entra en Renfe, abre el abono y recarga la página
-   de resultados hasta encontrar una plaza a esa hora.
-3. El progreso llega a la interfaz por WebSocket, con el contador de recargas y el registro en vivo.
-4. Al reservar, el bot deja el navegador abierto para que termines la compra a mano. Cuando acabes,
-   pulsa **He terminado, cerrar navegador**.
+1. Eliges un perfil, el trayecto (ida o vuelta) y la fecha. El abono ya determina origen y destino.
+2. El backend lanza el bot en un hilo aparte: entra en Renfe, abre el abono y te muestra los trenes
+   de ese día.
+3. Marcas uno y confirmas. El bot recarga la página de resultados hasta que ese tren tenga plaza.
+4. El progreso llega a la interfaz por WebSocket, con el contador de recargas y el registro en vivo.
+5. Al reservar, el bot deja el navegador abierto para que termines a mano. Cuando acabes, pulsa
+   **He terminado, cerrar navegador**.
+
+Si ya sabes a qué hora sale tu tren, la API acepta `departure_time` al lanzar la búsqueda y se salta
+el listado:
+
+```bash
+curl -X POST http://<host>:8000/api/jobs/current -H 'Content-Type: application/json' \
+     -d '{"user_id": 1, "journey_type": "ida", "date": "01/10/2026", "departure_time": "07:30"}'
+```
+
+Las columnas del listado salen tal cual de la tabla de Renfe. Solo la de salida está comprobada; el
+resto no se ha podido ver aún contra la web real.
 
 Puedes detener la búsqueda en cualquier momento; el bucle de recarga es infinito por diseño.
 

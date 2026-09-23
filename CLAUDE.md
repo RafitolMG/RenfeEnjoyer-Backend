@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A bot that automates buying Renfe (Spanish railway) season-pass ("abono") tickets with Selenium. The user
-picks a saved profile, a departure time, a direction and a date; the bot logs into `venta.renfe.com`, opens
-the pass and refreshes the results page until a train at that time has seats, reserves it, and then hands the
-browser over so the user completes the purchase by hand.
+A bot that automates booking seats on Renfe (Spanish railway) season passes ("abonos") with Selenium. The
+user picks a saved profile, a direction and a date; the bot logs into `venta.renfe.com`, opens the pass,
+lists that day's trains for the user to choose one, then refreshes the results page until the chosen train
+has seats, reserves it, and hands the browser over so the user completes the booking by hand.
 
 Despite the `-Backend` repo name there is no separate frontend repo — this is a **monorepo**:
 
@@ -75,12 +75,22 @@ Key invariants:
   cannot be fully unattended. The bot does not try to solve it: `awaiting_human` hands the window
   over and waits (`HUMAN_STEP_TIMEOUT`) until the challenge is gone, then carries on. A persistent
   Chrome profile would likely raise the score, but that is untested.
-- **Two states park the worker on an event instead of failing.** `awaiting_code` waits on a
-  `CodePrompt` until `POST /api/jobs/current/code` supplies the verification code Renfe sent;
-  `reserved` waits on `release`. Both are cancellable. The OTP field is matched by the heuristic
-  selectors in `config.OTP_SELECTOR` — **unverified against the real markup**, since triggering it
+- **Three states park the worker on the user instead of failing**, all through the per-job
+  `Interaction` bundle that `run_search` receives: `awaiting_code` waits on `interaction.code` until
+  `POST /api/jobs/current/code` supplies the verification code; `awaiting_train` waits on
+  `interaction.train` until `POST /api/jobs/current/train` picks a listed departure; `reserved` waits
+  on `interaction.release`. All are cancellable. A `ValuePrompt` must be opened (`request()`) *before*
+  its state is announced, or a client answering instantly is refused with `PromptNotOpen`. The OTP
+  field is matched by the heuristic selectors in `config.OTP_SELECTOR` — **unverified against the real markup**, since triggering it
   needs a live login with verification enabled. `RENFE_OTP_SELECTOR` overrides it, and a failed
   login logs the page's visible inputs so the real selector can be identified.
+- **The job stream is the only source of truth for job state.** Action endpoints return a status,
+  but the SPA deliberately ignores it: the worker usually announces the next state before the HTTP
+  response lands, and applying the response afterwards rolled the UI back (measured: after choosing a
+  train the picker stayed up while the bot was already polling, 3 runs of 3). Starting a job broadcasts
+  a fresh `snapshot` so clients drop the previous job's log. `snapshot`, `trains` and `search` messages
+  are broadcast without being recorded in the history, since the status they carry is already in any
+  replayed snapshot.
 - **`reserved` is not a terminal state.** The worker parks on the `release` event until the user confirms
   via `POST /api/jobs/current/release`; only then is the browser closed. This replaces the old
   `input('Presiona Enter...')` that made the app console-only.
@@ -96,6 +106,11 @@ Key invariants:
     `starts-with`, not an exact id.
   - Results rows are `row<n>` and the matching reserve button is `continuar<n>` — the number is sliced off
     the row id.
+  - `list_trains` reads the results table generically: every `td[data-label]` cell is passed through and
+    the SPA builds its columns from them. Only the `Salida` label is relied on — it is the one the
+    original code proved — so the other columns Renfe shows are **unverified**, as is whether the table
+    lists the whole day at once. Trains sharing a departure time are listed once, because polling tells
+    them apart by that time alone.
   - `modalGeneric` being visible means the train filled up between listing and reserving: refresh, don't fail.
   - Clicks go through `_click`, which falls back to a scripted click. `element_to_be_clickable` only
     checks visible-and-enabled, not that the element is on top: measured against the live page, the
@@ -114,7 +129,8 @@ Key invariants:
   password so it never reaches the client, and a blank password in `PATCH /api/users/{id}` means "keep the
   stored one". Encryption at rest is still an open task.
 - **`JobManager` is a process-wide singleton**, so tests reset it through the autouse `reset_job_manager`
-  fixture. Tests that exercise a job monkeypatch `app.bot.runner.run_search` — never drive the real Renfe site.
+  fixture. Tests that exercise a job monkeypatch `app.bot.runner.run_search(request, reporter, interaction)`
+  — never drive the real Renfe site.
 - **Ruff flags `Depends()` in defaults (B008)**, so dependencies use the `SessionDep` alias in `app/api/deps.py`
   rather than `session: Session = Depends(get_session)`.
 
