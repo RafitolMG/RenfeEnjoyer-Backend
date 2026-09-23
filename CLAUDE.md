@@ -75,15 +75,15 @@ Key invariants:
   cannot be fully unattended. The bot does not try to solve it: `awaiting_human` hands the window
   over and waits (`HUMAN_STEP_TIMEOUT`) until the challenge is gone, then carries on. A persistent
   Chrome profile would likely raise the score, but that is untested.
-- **Three states park the worker on the user instead of failing**, all through the per-job
-  `Interaction` bundle that `run_search` receives: `awaiting_code` waits on `interaction.code` until
-  `POST /api/jobs/current/code` supplies the verification code; `awaiting_train` waits on
-  `interaction.train` until `POST /api/jobs/current/train` picks a listed departure; `reserved` waits
-  on `interaction.release`. All are cancellable. A `ValuePrompt` must be opened (`request()`) *before*
-  its state is announced, or a client answering instantly is refused with `PromptNotOpen`. The OTP
-  field is matched by the heuristic selectors in `config.OTP_SELECTOR` — **unverified against the real markup**, since triggering it
-  needs a live login with verification enabled. `RENFE_OTP_SELECTOR` overrides it, and a failed
-  login logs the page's visible inputs so the real selector can be identified.
+- **Three states park the worker on the user instead of failing**, all through the per-job `Interaction`
+  bundle that `run_search` receives: `awaiting_code` waits on `interaction.code` until `POST
+  /api/jobs/current/code` supplies the verification code; `awaiting_train` waits on `interaction.train`
+  until `POST /api/jobs/current/train` picks a listed departure; `reserved` waits on
+  `interaction.release`. All are cancellable. A `ValuePrompt` must be opened (`request()`) *before* its
+  state is announced, or a client answering instantly is refused with `PromptNotOpen`. The OTP field is
+  matched by the heuristic selectors in `config.OTP_SELECTOR` — **unverified against the real markup**,
+  since triggering it needs a live login with verification enabled. `RENFE_OTP_SELECTOR` overrides it, and
+  a failed login logs the page's visible inputs so the real selector can be identified.
 - **The job stream is the only source of truth for job state.** Action endpoints return a status,
   but the SPA deliberately ignores it: the worker usually announces the next state before the HTTP
   response lands, and applying the response afterwards rolled the UI back (measured: after choosing a
