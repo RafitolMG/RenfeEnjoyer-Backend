@@ -44,6 +44,28 @@ cd backend
 PYTHONPATH=. .venv/bin/python scripts/migrate_legacy_db.py
 ```
 
+## Acceso desde el tailnet
+
+Para usarlo desde otro dispositivo tuyo (el móvil, el portátil) sin exponer nada a internet:
+
+```bash
+./scripts/serve-tailscale.sh
+```
+
+Compila el frontend si hace falta y lo sirve junto con la API en un único puerto, atado a la IP
+de Tailscale de la máquina. Queda accesible en `http://<tu-ip-de-tailscale>:8000`.
+
+Se ata a la IP de Tailscale en concreto, no a `0.0.0.0`, así que **no** queda expuesto en la red
+local. Sobrescribe el destino con `RENFE_HOST` y `RENFE_PORT` si lo necesitas.
+
+Dos advertencias:
+
+- **La API no tiene autenticación.** Cualquiera con acceso a tu tailnet puede leer los perfiles y
+  lanzar búsquedas. Vale mientras el tailnet sean solo equipos tuyos.
+- **No uses `tailscale funnel`** con esto: publicaría la app en internet.
+- Desde el móvil puedes lanzar, seguir y detener una búsqueda, pero **la compra hay que rematarla
+  en la máquina** donde corre el bot, porque es ahí donde se abre el navegador.
+
 ## Cómo funciona una búsqueda
 
 1. Eliges un perfil, la hora de salida, el trayecto y la fecha.

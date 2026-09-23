@@ -32,6 +32,10 @@ npm install && npm run dev                       # http://localhost:5173
 Vite proxies `/api` (HTTP **and** WebSocket) to port 8000, so the SPA is same-origin in dev and CORS only
 matters for other setups.
 
+`scripts/serve-tailscale.sh` serves the built SPA from FastAPI on a single port bound to the machine's
+Tailscale IP. `app.main` mounts `frontend/dist` at `/` only when that directory exists, after the API
+routers so the catch-all does not shadow them; in dev the mount is simply absent.
+
 ```bash
 cd backend  && .venv/bin/pytest -q               # single test: pytest tests/test_jobs_api.py::test_name
 cd backend  && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy
