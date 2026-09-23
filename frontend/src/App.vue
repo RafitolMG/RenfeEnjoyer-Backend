@@ -16,7 +16,18 @@ const profiles = ref<Profile[]>([])
 const selectedProfileId = ref<number | null>(null)
 const dialogOpen = ref(false)
 const error = ref('')
-const sessionStored = ref(false)
+const sessionVerifiedAt = ref<string | null>(null)
+
+const sessionLabel = computed(() =>
+  sessionVerifiedAt.value
+    ? `Sesión verificada el ${new Date(sessionVerifiedAt.value).toLocaleString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`
+    : 'Sin sesión iniciada',
+)
 
 const busy = computed(() => occupiesBrowser(status.value.state))
 
@@ -51,13 +62,13 @@ function startSearch(input: { journey_type: JourneyType; date: string }) {
 async function loadSession() {
   const id = selectedProfileId.value
   if (id === null) {
-    sessionStored.value = false
+    sessionVerifiedAt.value = null
     return
   }
   try {
-    sessionStored.value = (await api.getSession(id)).stored
+    sessionVerifiedAt.value = (await api.getSession(id)).verified_at
   } catch {
-    sessionStored.value = false
+    sessionVerifiedAt.value = null
   }
 }
 
@@ -102,9 +113,9 @@ onMounted(() => {
 
       <div class="session">
         <span class="session__state">
-          {{ sessionStored ? 'Sesión guardada para este perfil' : 'Sin sesión guardada' }}
+          {{ sessionLabel }}
         </span>
-        <button v-if="sessionStored" class="btn btn--ghost btn--small" @click="clearSession">
+        <button v-if="sessionVerifiedAt" class="btn btn--ghost btn--small" @click="clearSession">
           Cerrar sesión
         </button>
       </div>

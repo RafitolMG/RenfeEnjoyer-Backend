@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 
 from selenium import webdriver
@@ -22,6 +23,11 @@ BROWSER_BINARIES = (
 )
 
 
+# Written by the bot when it has seen the session work. The profile directory alone says
+# nothing: Chrome fills it the moment it opens, logged in or not.
+SESSION_MARKER = "renfe-session-verified"
+
+
 class BrowserUnavailable(BotError):
     """Raised when the browser exits before Selenium can drive it."""
 
@@ -35,6 +41,22 @@ def profile_dir_for(account: str) -> Path:
     """
     digest = hashlib.sha256(account.strip().lower().encode()).hexdigest()[:16]
     return PROFILE_DIR / digest
+
+
+def mark_session_verified(profile_dir: Path) -> None:
+    (profile_dir / SESSION_MARKER).write_text(datetime.now(UTC).isoformat())
+
+
+def forget_session(profile_dir: Path) -> None:
+    (profile_dir / SESSION_MARKER).unlink(missing_ok=True)
+
+
+def session_verified_at(profile_dir: Path) -> str | None:
+    """When the bot last saw this profile's Renfe session work, if it ever did."""
+    try:
+        return (profile_dir / SESSION_MARKER).read_text().strip() or None
+    except FileNotFoundError:
+        return None
 
 
 def build_chrome_driver(profile_dir: Path) -> webdriver.Chrome:

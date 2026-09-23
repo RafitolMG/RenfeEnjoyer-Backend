@@ -4,17 +4,23 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from app.bot.driver import profile_dir_for
+from app.bot.driver import mark_session_verified, profile_dir_for
 from app.bot.events import JobState
 
 ACCOUNT = "demo@example.com"
 
 
 @pytest.fixture
-def stored_profile() -> None:
+def browsed_profile() -> None:
+    """A profile Chrome has opened and filled with cookies, without ever logging in."""
     directory = profile_dir_for(ACCOUNT)
     (directory / "Default").mkdir(parents=True, exist_ok=True)
     (directory / "Default" / "Cookies").write_text("stub")
+
+
+@pytest.fixture
+def stored_profile(browsed_profile: None) -> None:
+    mark_session_verified(profile_dir_for(ACCOUNT))
 
 
 def test_profiles_never_share_a_browser_session() -> None:
@@ -26,13 +32,23 @@ def test_profiles_never_share_a_browser_session() -> None:
 def test_reports_when_nothing_is_stored(client: TestClient, profile: dict) -> None:
     shutil.rmtree(profile_dir_for(ACCOUNT), ignore_errors=True)
     response = client.get(f"/api/users/{profile['id']}/session")
-    assert response.json() == {"stored": False}
+    assert response.json() == {"stored": False, "verified_at": None}
+
+
+def test_cookies_from_an_anonymous_visit_are_not_a_session(
+    client: TestClient, profile: dict, browsed_profile: None
+) -> None:
+    """A search that stalled on the captcha leaves cookies behind but no login."""
+    response = client.get(f"/api/users/{profile['id']}/session")
+    assert response.json() == {"stored": False, "verified_at": None}
 
 
 def test_reports_and_clears_a_stored_session(
     client: TestClient, profile: dict, stored_profile: None
 ) -> None:
-    assert client.get(f"/api/users/{profile['id']}/session").json() == {"stored": True}
+    reported = client.get(f"/api/users/{profile['id']}/session").json()
+    assert reported["stored"] is True
+    assert reported["verified_at"] is not None
     assert client.delete(f"/api/users/{profile['id']}/session").status_code == 204
     assert not profile_dir_for(ACCOUNT).exists()
 

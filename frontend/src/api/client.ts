@@ -38,7 +38,7 @@ export const api = {
   deleteProfile: (id: number) => request<void>(`/users/${id}`, { method: 'DELETE' }),
 
   getSession: (userId: number) =>
-    request<{ stored: boolean }>(`/users/${userId}/session`),
+    request<{ stored: boolean; verified_at: string | null }>(`/users/${userId}/session`),
 
   clearSession: (userId: number) =>
     request<void>(`/users/${userId}/session`, { method: 'DELETE' }),

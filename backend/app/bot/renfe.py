@@ -19,7 +19,12 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from app.bot.driver import build_chrome_driver, profile_dir_for
+from app.bot.driver import (
+    build_chrome_driver,
+    forget_session,
+    mark_session_verified,
+    profile_dir_for,
+)
 from app.bot.errors import BotError
 from app.bot.events import JobState
 from app.config import OTP_SELECTOR, SELENIUM_TIMEOUT
@@ -198,12 +203,16 @@ def _ensure_session(
     driver.get(PASSES_URL)
     _dismiss_cookie_banner(driver, reporter)
 
+    profile_dir = profile_dir_for(request.email)
     if _session_is_active(driver):
+        mark_session_verified(profile_dir)
         reporter.log("Sesión reutilizada, no hace falta iniciar sesión")
         return
 
+    forget_session(profile_dir)
     reporter.log("No hay sesión válida, iniciando sesión")
     _login(driver, wait, request, reporter, interaction)
+    mark_session_verified(profile_dir)
 
 
 def _session_is_active(driver: WebDriver) -> bool:

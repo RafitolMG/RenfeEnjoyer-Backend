@@ -70,6 +70,10 @@ Key invariants:
   bounces to its public homepage rather than to the login form, so looking for a login field there
   would never match. Whether Renfe's auth cookie survives a browser restart is unverified — a
   session cookie would not, no matter the profile.
+- **Whether a profile is logged in is recorded, never inferred.** The bot writes `SESSION_MARKER` into the
+  profile when it sees the session work and removes it before logging in again; the SPA's indicator reads
+  only that. The profile's contents prove nothing: Chrome fills the directory the moment it opens, and a
+  search stalled on the captcha left 21 Renfe cookies behind with no login.
 - **Renfe's login is behind reCAPTCHA.** Measured against the live site, an automated session
   scores badly enough to get an image challenge in both headless and headed runs, so the login
   cannot be fully unattended. The bot does not try to solve it: `awaiting_human` hands the window
