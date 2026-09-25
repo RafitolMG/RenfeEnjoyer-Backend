@@ -90,10 +90,14 @@ Key invariants:
   /api/jobs/current/code` supplies the verification code; `awaiting_train` waits on `interaction.train`
   until `POST /api/jobs/current/train` picks a listed departure; `reserved` waits on
   `interaction.release`. All are cancellable. A `ValuePrompt` must be opened (`request()`) *before* its
-  state is announced, or a client answering instantly is refused with `PromptNotOpen`. The OTP field is
-  matched by the heuristic selectors in `config.OTP_SELECTOR` — **unverified against the real markup**,
-  since triggering it needs a live login with verification enabled. `RENFE_OTP_SELECTOR` overrides it, and
-  a failed login logs the page's visible inputs so the real selector can be identified.
+  state is announced, or a client answering instantly is refused with `PromptNotOpen`.
+- **The verification code goes through Renfe's two-step modal**, whose ids (`OTP_*` in `renfe.py`) come
+  from markup captured on the live site. Validar is a `type="button"` with an `onclick`, so the bot clicks
+  it: pressing Enter in the field sends nothing. After each code it waits for Renfe's verdict instead of
+  re-prompting straight away; a rejection asks the user again, and running out of attempts clicks
+  "Generar código" first. The error labels are hidden before each submit, because one left on screen by
+  the previous code would read as the verdict on the next before Renfe has checked it. How the modal
+  behaves after "Generar código" is unverified.
 - **The job stream is the only source of truth for job state.** Action endpoints return a status,
   but the SPA deliberately ignores it: the worker usually announces the next state before the HTTP
   response lands, and applying the response afterwards rolled the UI back (measured: after choosing a

@@ -135,15 +135,9 @@ curl -X POST http://<host>:8000/api/jobs/current/code \
      -H 'Content-Type: application/json' -d '{"code":"483920"}'
 ```
 
-El campo del formulario de Renfe se detecta por heurística (`autocomplete="one-time-code"`, y
-nombres que contengan `otp`, `codigo`, `sms` o `verificacion`). **Esa parte no está verificada
-contra el formulario real**, porque para verlo hace falta provocar un login con verificación
-activa. Si no lo reconoce, el registro vuelca los campos visibles de la página al fallar; con eso
-puedes fijar el selector exacto:
-
-```bash
-RENFE_OTP_SELECTOR="input#el-id-real" ./scripts/serve-tailscale.sh
-```
+El bot escribe el código en el modal «Verificación en dos pasos» de Renfe y pulsa **Validar**.
+Si Renfe lo rechaza, vuelve a pedírtelo con un aviso; si se agotan los intentos, pulsa **Generar
+código** para que Renfe envíe uno nuevo y te lo pide otra vez.
 
 ## Cómo funciona una búsqueda
 

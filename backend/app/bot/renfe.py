@@ -3,6 +3,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import Protocol, TypedDict
 
 from selenium.common.exceptions import (
@@ -13,7 +14,6 @@ from selenium.common.exceptions import (
     TimeoutException,
 )
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
@@ -27,7 +27,7 @@ from app.bot.driver import (
 )
 from app.bot.errors import BotError
 from app.bot.events import JobState
-from app.config import OTP_SELECTOR, SELENIUM_TIMEOUT
+from app.config import SELENIUM_TIMEOUT
 
 # loginParticular accepts an email in the `num_tarjeta` field (labelled
 # "Email / Número Más Renfe"). loginCEX is the company login and takes a client
@@ -74,6 +74,16 @@ CAPTCHA_CHALLENGE_SELECTOR = (
     "iframe[src*='recaptcha/api2/bframe'], #rc-imageselect, iframe[title*='desafío' i]"
 )
 HUMAN_STEP_TIMEOUT = 300.0
+
+# Renfe's two-step verification modal, which opens over the login page. The code is sent
+# by the Validar button's click handler rather than by a form, so pressing Enter in the
+# field does nothing.
+OTP_FIELD_ID = "codigoValidaLogin2F"
+OTP_SUBMIT_ID = "idBotonValDispositivo"
+OTP_REJECTED_SELECTOR = "#errorProcesoValidacionCodigo, #errorCampoCodigoVacio"
+# Shown after too many wrong codes, along with a button that sends a new one.
+OTP_EXHAUSTED_SELECTOR = "#errorIntentosValidacion"
+OTP_REGENERATE_ID = "idBotonRegenerarCodigo"
 
 
 class JobCancelled(Exception):
@@ -135,6 +145,12 @@ class Interaction:
     release: threading.Event = field(default_factory=threading.Event)
     code: ValuePrompt = field(default_factory=ValuePrompt)
     train: ValuePrompt = field(default_factory=ValuePrompt)
+
+
+class CodeVerdict(Enum):
+    ACCEPTED = auto()
+    REJECTED = auto()
+    EXHAUSTED = auto()
 
 
 class Train(TypedDict):
@@ -272,10 +288,9 @@ def _await_session(
             announced_captcha = False
             deadline = time.monotonic() + SELENIUM_TIMEOUT
 
-        field = _find_otp_field(driver)
-        if field is not None:
+        if _find_otp_field(driver) is not None:
             _answer_verification(driver, reporter, interaction)
-            # The code was accepted or rejected; give the next page its own budget.
+            # Renfe took the code or stopped answering; give the next page its own budget.
             deadline = time.monotonic() + SELENIUM_TIMEOUT
             continue
 
@@ -286,31 +301,65 @@ def _await_session(
 
 
 def _captcha_is_showing(driver: WebDriver) -> bool:
-    return any(
-        element.is_displayed()
-        for element in driver.find_elements(By.CSS_SELECTOR, CAPTCHA_CHALLENGE_SELECTOR)
-    )
+    return _is_showing(driver, CAPTCHA_CHALLENGE_SELECTOR)
+
+
+def _is_showing(driver: WebDriver, selector: str) -> bool:
+    try:
+        return any(
+            element.is_displayed()
+            for element in driver.find_elements(By.CSS_SELECTOR, selector)
+        )
+    except StaleElementReferenceException:
+        return False  # the page navigated away between the lookup and the check
 
 
 def _find_otp_field(driver: WebDriver) -> WebElement | None:
-    for element in driver.find_elements(By.CSS_SELECTOR, OTP_SELECTOR):
-        if element.is_displayed() and element.is_enabled():
-            return element
+    try:
+        for element in driver.find_elements(By.ID, OTP_FIELD_ID):
+            if element.is_displayed() and element.is_enabled():
+                return element
+    except StaleElementReferenceException:
+        pass  # navigating away, which is what an accepted code does
     return None
 
 
 def _answer_verification(
     driver: WebDriver, reporter: Reporter, interaction: Interaction
 ) -> None:
+    """Relay codes from the interface until Renfe stops asking for one."""
     cancel = interaction.cancel
-    interaction.code.request()
-    reporter.state(
-        JobState.AWAITING_CODE,
-        "Renfe pide un código de verificación. Introdúcelo para continuar.",
-    )
-    code = interaction.code.wait(cancel)
+    prompt = "Renfe pide un código de verificación. Introdúcelo para continuar."
+    while True:
+        interaction.code.request()
+        reporter.state(JobState.AWAITING_CODE, prompt)
+        code = interaction.code.wait(cancel)
 
-    reporter.state(JobState.LOGGING_IN, "Enviando el código de verificación")
+        reporter.state(JobState.LOGGING_IN, "Enviando el código de verificación")
+        _submit_code(driver, code, cancel)
+
+        verdict = _await_code_verdict(driver, cancel)
+        if verdict is CodeVerdict.REJECTED:
+            reporter.log("Renfe ha rechazado el código de verificación")
+            prompt = "Renfe no ha aceptado el código. Revísalo e introdúcelo de nuevo."
+        elif verdict is CodeVerdict.EXHAUSTED:
+            reporter.log("Demasiados códigos erróneos, se pide uno nuevo a Renfe")
+            # Hidden until the attempts run out; a scripted click fires it regardless.
+            _js_click(driver, driver.find_element(By.ID, OTP_REGENERATE_ID))
+            prompt = "Demasiados intentos. Renfe ha enviado un código nuevo; introdúcelo."
+        else:
+            # Accepted, or Renfe never answered: the login loop reads whatever follows.
+            return
+
+
+def _submit_code(driver: WebDriver, code: str, cancel: threading.Event) -> None:
+    # A verdict left on screen by the previous code would read as the answer to this
+    # one before Renfe has checked it.
+    driver.execute_script(
+        "document.querySelectorAll(arguments[0])"
+        ".forEach((label) => { label.style.display = 'none'; });",
+        f"{OTP_REJECTED_SELECTOR}, {OTP_EXHAUSTED_SELECTOR}",
+    )
 
     def resolve() -> WebElement:
         field = _find_otp_field(driver)
@@ -318,8 +367,25 @@ def _answer_verification(
             raise StaleElementReferenceException("the verification field disappeared")
         return field
 
-    field = _fill(driver, resolve, code, cancel, "código de verificación")
-    field.send_keys(Keys.RETURN)
+    _fill(driver, resolve, code, cancel, "código de verificación")
+    _click(driver, driver.find_element(By.ID, OTP_SUBMIT_ID))
+
+
+def _await_code_verdict(driver: WebDriver, cancel: threading.Event) -> CodeVerdict | None:
+    """Wait for Renfe to judge the code; None if it never answers."""
+    deadline = time.monotonic() + SELENIUM_TIMEOUT
+    while time.monotonic() < deadline:
+        if HOME_URL_FRAGMENT in driver.current_url:
+            return CodeVerdict.ACCEPTED
+        # Checked first, in case running out of attempts also shows the plain rejection.
+        if _is_showing(driver, OTP_EXHAUSTED_SELECTOR):
+            return CodeVerdict.EXHAUSTED
+        if _is_showing(driver, OTP_REJECTED_SELECTOR):
+            return CodeVerdict.REJECTED
+        if _find_otp_field(driver) is None:
+            return CodeVerdict.ACCEPTED
+        _sleep(LOGIN_POLL_INTERVAL, cancel)
+    return None
 
 
 def _describe_visible_inputs(driver: WebDriver) -> str:
