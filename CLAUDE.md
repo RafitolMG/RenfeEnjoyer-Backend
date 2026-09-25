@@ -19,26 +19,31 @@ It was a Tkinter desktop app until the v2 restructure; that version lives on the
 ## Running & building
 
 ```bash
-# Backend
-cd backend
-python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/uvicorn app.main:app --reload          # http://127.0.0.1:8000
+# One-off setup, from the repo root. The venv lives at the root, not in backend/.
+python -m venv .venv && .venv/bin/pip install -e 'backend[dev]'
+(cd frontend && npm install)
 
-# Frontend
-cd frontend
-npm install && npm run dev                       # http://localhost:5173
+# Development, two terminals
+cd backend && ../.venv/bin/uvicorn app.main:app --reload   # http://127.0.0.1:8000
+cd frontend && npm run dev                                 # http://localhost:5173
 ```
 
 Vite proxies `/api` (HTTP **and** WebSocket) to port 8000, so the SPA is same-origin in dev and CORS only
 matters for other setups.
 
-`scripts/serve-tailscale.sh` serves the built SPA from FastAPI on a single port bound to the machine's
-Tailscale IP. `app.main` mounts `frontend/dist` at `/` only when that directory exists, after the API
-routers so the catch-all does not shadow them; in dev the mount is simply absent.
+`scripts/serve-tailscale.sh` (installed as the `renfe` command via a symlink in `~/.local/bin`) serves the
+built SPA from FastAPI on a single port bound to the machine's Tailscale IP. It rebuilds the SPA when any
+source is newer than `dist/index.html`, waits for `/api/health`, opens the MagicDNS URL in the browser when
+run from a desktop session, and only opens the browser if the server is already up. It resolves its own path
+through `readlink -f` so the symlink works, and traps signals so stopping it never orphans uvicorn. It
+advertises the full MagicDNS name, not the IP (which changes when the node re-registers) nor the short name
+(which on this machine resolves to its own IPv6 addresses, where the server does not listen). `app.main`
+mounts `frontend/dist` at `/` only when that directory exists, after the API routers so the catch-all does
+not shadow them; in dev the mount is simply absent.
 
 ```bash
-cd backend  && .venv/bin/pytest -q               # single test: pytest tests/test_jobs_api.py::test_name
-cd backend  && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy
+cd backend  && ../.venv/bin/pytest -q            # single test: pytest tests/test_jobs_api.py::test_name
+cd backend  && ../.venv/bin/ruff check . && ../.venv/bin/ruff format --check . && ../.venv/bin/mypy
 cd frontend && npm run typecheck && npm run build
 ```
 

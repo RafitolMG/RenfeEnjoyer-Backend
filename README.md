@@ -19,16 +19,35 @@ Monorepo con dos piezas:
 
 ## Puesta en marcha
 
-```bash
-# Backend (terminal 1)
-cd backend
-python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/uvicorn app.main:app --reload
+Una sola vez, desde la raíz del repositorio:
 
-# Frontend (terminal 2)
-cd frontend
-npm install
-npm run dev
+```bash
+python -m venv .venv && .venv/bin/pip install -e 'backend[dev]'
+(cd frontend && npm install)
+ln -s "$PWD/scripts/serve-tailscale.sh" ~/.local/bin/renfe
+```
+
+A partir de ahí, desde cualquier directorio:
+
+```bash
+renfe
+```
+
+Recompila el frontend si has cambiado algo, arranca el servidor, espera a que responda y abre la
+app en el navegador. Si ya estaba en marcha, solo abre el navegador. `Ctrl+C` lo para todo.
+
+La app queda en `http://<equipo>.<tailnet>.ts.net:8000`, la dirección MagicDNS completa del equipo,
+que el comando muestra al arrancar. Usa esa y no la IP, que cambia si el nodo se vuelve a registrar
+en Tailscale. El nombre corto (`http://<equipo>:8000`) no sirve desde el propio equipo: ahí resuelve
+a sus direcciones IPv6, y el servidor solo escucha en la IPv4 de Tailscale.
+
+### Desarrollo
+
+Con recarga en caliente, en dos terminales. Solo es accesible desde el propio equipo:
+
+```bash
+cd backend && ../.venv/bin/uvicorn app.main:app --reload    # terminal 1
+cd frontend && npm run dev                                  # terminal 2
 ```
 
 La interfaz queda en <http://localhost:5173>. El servidor de Vite hace de proxy de `/api` hacia
@@ -41,19 +60,13 @@ reordena al esquema nuevo:
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python scripts/migrate_legacy_db.py
+PYTHONPATH=. ../.venv/bin/python scripts/migrate_legacy_db.py
 ```
 
 ## Acceso desde el tailnet
 
-Para usarlo desde otro dispositivo tuyo (el móvil, el portátil) sin exponer nada a internet:
-
-```bash
-./scripts/serve-tailscale.sh
-```
-
-Compila el frontend si hace falta y lo sirve junto con la API en un único puerto, atado a la IP
-de Tailscale de la máquina. Queda accesible en `http://<tu-ip-de-tailscale>:8000`.
+`renfe` sirve la API y el frontend en un único puerto, atado a la IP de Tailscale del equipo, así
+que la app se puede usar desde el móvil o el portátil sin exponer nada a internet.
 
 Se ata a la IP de Tailscale en concreto, no a `0.0.0.0`, así que **no** queda expuesto en la red
 local. Sobrescribe el destino con `RENFE_HOST` y `RENFE_PORT` si lo necesitas.
@@ -67,8 +80,8 @@ Advertencias:
 - **La API no tiene autenticación.** Cualquiera con acceso a tu tailnet puede leer los perfiles y
   lanzar búsquedas. Vale mientras el tailnet sean solo equipos tuyos.
 - **No uses `tailscale funnel`** con esto: publicaría la app en internet.
-- Desde el móvil puedes lanzar, seguir y detener una búsqueda, pero **la compra hay que rematarla
-  en la máquina** donde corre el bot, porque es ahí donde se abre el navegador.
+- Desde el móvil puedes lanzar, seguir y detener una búsqueda, pero **el captcha hay que
+  resolverlo en la máquina** donde corre el bot, porque es ahí donde se abre el navegador.
 
 ## Sesión persistente
 
