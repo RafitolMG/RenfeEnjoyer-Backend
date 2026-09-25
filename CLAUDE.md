@@ -19,9 +19,10 @@ It was a Tkinter desktop app until the v2 restructure; that version lives on the
 ## Running & building
 
 ```bash
-# One-off setup, from the repo root. The venv lives at the root, not in backend/.
-python -m venv .venv && .venv/bin/pip install -e 'backend[dev]'
-(cd frontend && npm install)
+# One-off setup on a machine: venv at the repo root (not backend/), npm ci, `renfe` link in ~/.local/bin.
+# Reports missing system packages instead of installing them. Clone with -b ubuntu-dev: `main` is still
+# the old Tkinter app.
+./scripts/install.sh
 
 # Development, two terminals
 cd backend && ../.venv/bin/uvicorn app.main:app --reload   # http://127.0.0.1:8000

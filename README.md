@@ -19,13 +19,24 @@ Monorepo con dos piezas:
 
 ## Puesta en marcha
 
-Una sola vez, desde la raíz del repositorio:
+Una sola vez en cada equipo:
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -e 'backend[dev]'
-(cd frontend && npm install)
-ln -s "$PWD/scripts/serve-tailscale.sh" ~/.local/bin/renfe
+git clone -b ubuntu-dev https://github.com/RafitolMG/RenfeEnjoyer-Backend.git
+cd RenfeEnjoyer-Backend
+./scripts/install.sh
 ```
+
+El `-b ubuntu-dev` importa: la rama por defecto del repositorio, `main`, sigue siendo la versión
+antigua de Tkinter. Si ya clonaste sin él, cambia de rama con `git switch ubuntu-dev`.
+
+`install.sh` instala las dependencias de Python y del frontend y crea el comando `renfe` en
+`~/.local/bin`. No instala nada a nivel de sistema: si falta Python, Node, Chromium o Tailscale, lo
+dice. Se puede relanzar sin problema.
+
+Los perfiles y las sesiones de Renfe son de cada equipo y no viajan con el repositorio. En uno nuevo
+hay que crear los perfiles otra vez (o copiar `backend/renfe_enjoyer.db`), y la primera búsqueda de
+cada perfil pasará por el login y el captcha.
 
 A partir de ahí, desde cualquier directorio:
 
