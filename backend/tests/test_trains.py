@@ -1,4 +1,5 @@
 import threading
+from collections.abc import Callable
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,8 +23,12 @@ class FakeCell:
 
 
 class FakeRow:
-    def __init__(self, **cells: str) -> None:
+    def __init__(self, row_id: str = "row1", **cells: str) -> None:
+        self.row_id = row_id
         self.cells = [FakeCell(label, text) for label, text in cells.items()]
+
+    def get_attribute(self, name: str) -> str | None:
+        return self.row_id if name == "id" else None
 
     def find_elements(self, by: str, selector: str) -> list[FakeCell]:
         return self.cells
@@ -55,6 +60,11 @@ def test_departure_is_extracted_from_decorated_cell_text() -> None:
     assert trains[0]["cells"]["Salida"] == "Salida 7:05 h"
 
 
+def test_departure_is_read_with_a_unit_glued_to_it() -> None:
+    trains = renfe.list_trains(TableDriver([FakeRow(Salida="07:15h")]))
+    assert trains[0]["departure"] == "07:15"
+
+
 def test_rows_without_a_departure_time_are_skipped() -> None:
     trains = renfe.list_trains(
         TableDriver([FakeRow(Salida="Sin horario"), FakeRow(Llegada="10:00")])
@@ -78,21 +88,24 @@ class ExpiringWait:
 
 
 class ReadyWait:
-    def until(self, condition: object) -> object:
-        return object()
+    def until(self, condition: Callable[[object], object]) -> object:
+        return condition(None)
 
 
 class RecordingReporter:
     def __init__(self) -> None:
         self.states: list[JobState] = []
         self.listed: list[renfe.Train] = []
+        self.logs: list[str] = []
         self.on_state = lambda state: None
 
     def state(self, state: JobState, message: str) -> None:
         self.states.append(state)
         self.on_state(state)
 
-    def log(self, message: str) -> None: ...
+    def log(self, message: str) -> None:
+        self.logs.append(message)
+
     def attempt(self, count: int) -> None: ...
 
     def trains(self, trains: list[renfe.Train]) -> None:
@@ -104,6 +117,18 @@ def test_an_empty_results_page_fails_with_a_clear_message() -> None:
         renfe._choose_train(
             TableDriver([]), ExpiringWait(), RecordingReporter(), renfe.Interaction()
         )
+
+
+def test_unreadable_rows_are_not_reported_as_an_empty_day() -> None:
+    """The reported symptom: "no trains" while the day's trains were on screen."""
+    reporter = RecordingReporter()
+    driver = TableDriver([FakeRow(row_id="row0", Hora="Sin horario")])
+
+    with pytest.raises(renfe.NoTrainsListed, match="no se ha podido leer") as failure:
+        renfe._choose_train(driver, ExpiringWait(), reporter, renfe.Interaction())
+
+    assert "no ha devuelto trenes" not in str(failure.value)
+    assert "row0: Hora='Sin horario'" in reporter.logs[-1]
 
 
 def test_a_client_answering_instantly_is_never_turned_away() -> None:

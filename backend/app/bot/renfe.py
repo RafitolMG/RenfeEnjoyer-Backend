@@ -43,7 +43,8 @@ JOURNEY_RADIO_IDS = {"ida": "journeyStationOrigin", "vuelta": "journeyStationDes
 
 RESULT_ROW_SELECTOR = "tr[id^='row']"
 DEPARTURE_LABEL = "Salida"
-TIME_PATTERN = re.compile(r"\b(\d{1,2}:\d{2})\b")
+# Bounded by digits, not word breaks, so a unit glued to the time ("07:15h") still reads.
+TIME_PATTERN = re.compile(r"(?<!\d)(\d{1,2}:\d{2})(?!\d)")
 
 CONFIRMATION_LOCATOR = (
     By.CSS_SELECTOR,
@@ -533,16 +534,21 @@ def _submit_search(
 def _choose_train(
     driver: WebDriver, wait: WebDriverWait, reporter: Reporter, interaction: Interaction
 ) -> str:
+    # Waiting for a row alone reported a day with trains as empty, 4 s into a 100 s wait:
+    # a row can be present before any departure in the table is readable.
     try:
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, RESULT_ROW_SELECTOR)))
+        trains: list[Train] = wait.until(lambda _: list_trains(driver))
     except TimeoutException:
+        rows = driver.find_elements(By.CSS_SELECTOR, RESULT_ROW_SELECTOR)
+        if not rows:
+            raise NoTrainsListed(
+                "Renfe no ha devuelto trenes para ese día y trayecto"
+            ) from None
+        reporter.log(f"Filas sin hora de salida legible: {_describe_rows(rows)}")
         raise NoTrainsListed(
-            "Renfe no ha devuelto trenes para ese día y trayecto"
+            f"Renfe ha devuelto {len(rows)} filas, pero no se ha podido leer la hora "
+            "de salida de ninguna"
         ) from None
-
-    trains = list_trains(driver)
-    if not trains:
-        raise NoTrainsListed("Renfe no ha devuelto trenes para ese día y trayecto")
 
     interaction.train.request()
     reporter.trains(trains)
@@ -565,7 +571,7 @@ def list_trains(driver: WebDriver) -> list[Train]:
     for row in driver.find_elements(By.CSS_SELECTOR, RESULT_ROW_SELECTOR):
         try:
             cells = {
-                label: " ".join((cell.get_attribute("textContent") or "").split())
+                label: _cell_text(cell)
                 for cell in row.find_elements(By.CSS_SELECTOR, "td[data-label]")
                 if (label := cell.get_attribute("data-label"))
             }
@@ -580,6 +586,25 @@ def list_trains(driver: WebDriver) -> list[Train]:
         seen.add(match.group(1))
         trains.append(Train(departure=match.group(1), cells=cells))
     return trains
+
+
+def _cell_text(cell: WebElement) -> str:
+    return " ".join((cell.get_attribute("textContent") or "").split())
+
+
+def _describe_rows(rows: list[WebElement]) -> str:
+    """Report the table's shape so a change in Renfe's markup can be identified."""
+    described = []
+    for row in rows[:3]:
+        try:
+            cells = ", ".join(
+                f"{cell.get_attribute('data-label') or '-'}={_cell_text(cell)[:40]!r}"
+                for cell in row.find_elements(By.CSS_SELECTOR, "td")
+            )
+            described.append(f"{row.get_attribute('id') or '-'}: {cells or 'sin celdas'}")
+        except StaleElementReferenceException:
+            continue
+    return " | ".join(described) or "ninguna"
 
 
 def _poll_for_seat(

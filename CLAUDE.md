@@ -124,7 +124,9 @@ Key invariants:
     the SPA builds its columns from them. Only the `Salida` label is relied on — it is the one the
     original code proved — so the other columns Renfe shows are **unverified**, as is whether the table
     lists the whole day at once. Trains sharing a departure time are listed once, because polling tells
-    them apart by that time alone.
+    them apart by that time alone. `_choose_train` waits until a departure is readable, not just for a
+    row: waiting for rows reported a day with trains as empty 4 s into the wait. Rows that never become
+    readable fail with their own message and are dumped to the log, so a markup change is identifiable.
   - `modalGeneric` being visible means the train filled up between listing and reserving: refresh, don't fail.
   - Clicks go through `_click`, which falls back to a scripted click. `element_to_be_clickable` only
     checks visible-and-enabled, not that the element is on top: measured against the live page, the
