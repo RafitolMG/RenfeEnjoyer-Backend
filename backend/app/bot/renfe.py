@@ -51,6 +51,9 @@ CONFIRMATION_LOCATOR = (
 )
 
 COOKIE_BANNER_TIMEOUT = 20
+# OneTrust sets this once the banner has been answered, on .renfe.com so it covers the
+# public site and the booking one alike. OptanonConsent is no signal: it is set on load.
+COOKIE_CHOICE_COOKIE = "OptanonAlertBoxClosed"
 COOKIE_OVERLAY_LOCATOR = (By.ID, "onetrust-banner-sdk")
 COOKIE_OVERLAY_TIMEOUT = 10
 POLL_INTERVAL = 2.0
@@ -413,6 +416,11 @@ def _login_failure_reason(driver: WebDriver) -> str:
 
 
 def _dismiss_cookie_banner(driver: WebDriver, reporter: Reporter) -> None:
+    # The persistent profile remembers the choice, so the banner never shows again.
+    # Waiting for it anyway cost the full timeout twice per search, ~40 s before login.
+    if driver.get_cookie(COOKIE_CHOICE_COOKIE) is not None:
+        return
+
     try:
         banner = WebDriverWait(driver, COOKIE_BANNER_TIMEOUT).until(
             EC.element_to_be_clickable((By.ID, "onetrust-reject-all-handler"))

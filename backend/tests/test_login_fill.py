@@ -1,8 +1,10 @@
 import threading
+import time
 
 import pytest
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
+    NoSuchElementException,
     StaleElementReferenceException,
 )
 
@@ -224,3 +226,49 @@ def test_session_is_active_while_on_the_passes_page() -> None:
 def test_session_is_inactive_when_bounced_to_the_public_site() -> None:
     """Renfe redirects to its homepage, not to the login form, when unauthenticated."""
     assert not renfe._session_is_active(UrlDriver("https://www.renfe.com/es/es"))
+
+
+class ConsentDriver:
+    """Remembers a cookie choice or not; the banner itself never appears."""
+
+    def __init__(self, choice_made: bool) -> None:
+        self.choice_made = choice_made
+        self.banner_lookups = 0
+
+    def get_cookie(self, name: str) -> dict | None:
+        if self.choice_made and name == renfe.COOKIE_CHOICE_COOKIE:
+            return {"name": name, "value": "2026-09-25T10:00:00.000Z"}
+        return None
+
+    def find_element(self, by: str, value: str) -> None:
+        self.banner_lookups += 1
+        raise NoSuchElementException(value)
+
+
+class SilentReporter:
+    def state(self, state: object, message: str) -> None: ...
+    def log(self, message: str) -> None: ...
+    def attempt(self, count: int) -> None: ...
+    def trains(self, trains: list) -> None: ...
+
+
+def test_a_remembered_cookie_choice_skips_the_banner_wait() -> None:
+    """Waiting for a banner that never comes cost ~40 s per search."""
+    driver = ConsentDriver(choice_made=True)
+    started = time.monotonic()
+
+    renfe._dismiss_cookie_banner(driver, SilentReporter())
+
+    assert time.monotonic() - started < 0.1
+    assert driver.banner_lookups == 0
+
+
+def test_without_a_choice_the_banner_is_still_awaited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(renfe, "COOKIE_BANNER_TIMEOUT", 0.3)
+    driver = ConsentDriver(choice_made=False)
+
+    renfe._dismiss_cookie_banner(driver, SilentReporter())
+
+    assert driver.banner_lookups > 0
