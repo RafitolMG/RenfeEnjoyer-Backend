@@ -118,15 +118,23 @@ Key invariants:
   whenever Renfe changes their markup; that file is where to look first.
   - The pass button's id is `new<abono>` right-padded with spaces, so it is matched with an XPath
     `starts-with`, not an exact id.
-  - Results rows are `row<n>` and the matching reserve button is `continuar<n>` — the number is sliced off
-    the row id.
-  - `list_trains` reads the results table generically: every `td[data-label]` cell is passed through and
-    the SPA builds its columns from them. Only the `Salida` label is relied on — it is the one the
-    original code proved — so the other columns Renfe shows are **unverified**, as is whether the table
-    lists the whole day at once. Trains sharing a departure time are listed once, because polling tells
-    them apart by that time alone. `_choose_train` waits until a departure is readable, not just for a
-    row: waiting for rows reported a day with trains as empty 4 s into the wait. Rows that never become
-    readable fail with their own message and are dumped to the log, so a markup change is identifiable.
+  - Results rows are `row<n>`. Only a row with seats carries a reserve button, `continuar<n>`, looked up
+    inside the row; a full train shows "Tren completo, sin plazas disponibles en este horario." instead.
+  - Renfe writes times as `07.18`, with a dot. `_parse_departure` turns them into the zero-padded
+    `07:18` the API and SPA use, and both the listing and the polling go through it so they cannot
+    disagree. Before that, the listing read no departures at all and the polling's
+    `contains(text(), '07:18')` could never have matched.
+  - `list_trains` passes every `td[data-label]` cell that has text through, and the SPA builds its
+    columns from them; only `Salida` is relied on. Checked against a captured table: `Avisos` (empty, the
+    notice lives in a `title`, so it is dropped), `Salida`, `Llegada`, `Duración` (served already mangled
+    as `Duraciï¿½n`, repaired through `LABEL_REPAIRS`), `Tren`, and `Clase` on rows with seats. `Plazas` is
+    derived by the bot from the reserve button.
+  - One departure can be listed twice under different train numbers, each with its own seats (07.18 as
+    `row13003` and `row35003`). It is offered once, with seats if any of its rows has them, and polling
+    tries every row with that time. Whether the table lists the whole day at once is still unverified.
+  - `_choose_train` waits until a departure is readable, not just for a row. A table that never becomes
+    readable fails with its own message and its first rows are dumped to the log; that dump is how the
+    dotted times were found.
   - `modalGeneric` being visible means the train filled up between listing and reserving: refresh, don't fail.
   - Clicks go through `_click`, which falls back to a scripted click. `element_to_be_clickable` only
     checks visible-and-enabled, not that the element is on top: measured against the live page, the

@@ -22,15 +22,28 @@ class FakeCell:
         return self.attributes.get(name)
 
 
+class FakeButton:
+    def __init__(self, button_id: str) -> None:
+        self.button_id = button_id
+
+
 class FakeRow:
-    def __init__(self, row_id: str = "row1", **cells: str) -> None:
+    """A results row; only rows with seats carry a reserve button."""
+
+    def __init__(self, row_id: str = "row1", seats: bool = False, **cells: str) -> None:
         self.row_id = row_id
         self.cells = [FakeCell(label, text) for label, text in cells.items()]
+        self.buttons = [FakeButton(f"continuar{row_id[3:]}")] if seats else []
 
     def get_attribute(self, name: str) -> str | None:
         return self.row_id if name == "id" else None
 
-    def find_elements(self, by: str, selector: str) -> list[FakeCell]:
+    def find_elements(self, by: str, selector: str) -> list:
+        if selector == renfe.RESERVE_BUTTON_SELECTOR:
+            return self.buttons
+        if "data-label='" in selector:
+            label = selector.split("'")[1]
+            return [c for c in self.cells if c.attributes["data-label"] == label]
         return self.cells
 
 
@@ -42,21 +55,57 @@ class TableDriver:
         return self.rows
 
 
-def test_lists_each_train_with_every_column_renfe_shows() -> None:
+def renfe_row(row_id: str, departure: str, seats: bool) -> FakeRow:
+    """A row as Renfe renders it, from the markup captured on the live site."""
+    cells = {
+        "Avisos": "",
+        "Salida": departure,
+        "Llegada": "08.32",
+        "Duraciï¿½n": "1 h. 14 min.",
+        "Tren": "MD",
+    }
+    if seats:
+        cells["Clase"] = "Turista"
+    return FakeRow(row_id=row_id, seats=seats, **cells)
+
+
+def test_reads_renfe_s_table() -> None:
     trains = renfe.list_trains(
-        TableDriver([FakeRow(Salida="07:30", Llegada="08:45", Tren="MD 18045")])
+        TableDriver(
+            [
+                renfe_row("row13003", "07.18", seats=False),
+                renfe_row("row13393", "14.13", seats=True),
+            ]
+        )
     )
     assert trains == [
         {
-            "departure": "07:30",
-            "cells": {"Salida": "07:30", "Llegada": "08:45", "Tren": "MD 18045"},
-        }
+            "departure": "07:18",
+            "cells": {
+                "Salida": "07.18",
+                "Llegada": "08.32",
+                "Duración": "1 h. 14 min.",
+                "Tren": "MD",
+                "Plazas": "Completo",
+            },
+        },
+        {
+            "departure": "14:13",
+            "cells": {
+                "Salida": "14.13",
+                "Llegada": "08.32",
+                "Duración": "1 h. 14 min.",
+                "Tren": "MD",
+                "Clase": "Turista",
+                "Plazas": "Disponible",
+            },
+        },
     ]
 
 
 def test_departure_is_extracted_from_decorated_cell_text() -> None:
     trains = renfe.list_trains(TableDriver([FakeRow(Salida="\n  Salida  7:05 h\n")]))
-    assert trains[0]["departure"] == "7:05"
+    assert trains[0]["departure"] == "07:05"
     assert trains[0]["cells"]["Salida"] == "Salida 7:05 h"
 
 
@@ -80,6 +129,48 @@ def test_repeated_departures_are_offered_once() -> None:
         )
     )
     assert [t["cells"]["Tren"] for t in trains] == ["A"]
+
+
+def test_a_repeated_departure_has_seats_if_any_of_its_rows_does() -> None:
+    """Renfe lists 07.18 twice under two train numbers; polling tries both."""
+    trains = renfe.list_trains(
+        TableDriver(
+            [
+                renfe_row("row13003", "07.18", seats=False),
+                renfe_row("row35003", "07.18", seats=True),
+            ]
+        )
+    )
+    assert len(trains) == 1
+    assert trains[0]["cells"]["Plazas"] == "Disponible"
+
+
+@pytest.mark.parametrize("requested", ["07:18", "7:18"])
+def test_polling_finds_the_row_in_renfe_s_time_format(requested: str) -> None:
+    row = renfe_row("row13393", "07.18", seats=True)
+    button = renfe._find_reserve_button(TableDriver([row]), requested)
+    assert button is row.buttons[0]
+
+
+def test_polling_reserves_on_whichever_row_of_a_departure_has_seats() -> None:
+    table = TableDriver(
+        [
+            renfe_row("row13003", "07.18", seats=False),
+            renfe_row("row35003", "07.18", seats=True),
+        ]
+    )
+    button = renfe._find_reserve_button(table, "07:18")
+    assert button is not None and button.button_id == "continuar35003"
+
+
+def test_polling_finds_nothing_while_the_train_is_full() -> None:
+    table = TableDriver(
+        [
+            renfe_row("row13003", "07.18", seats=False),
+            renfe_row("row13393", "14.13", seats=True),
+        ]
+    )
+    assert renfe._find_reserve_button(table, "07:18") is None
 
 
 class ExpiringWait:

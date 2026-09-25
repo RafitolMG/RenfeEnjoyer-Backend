@@ -42,9 +42,16 @@ HOME_URL_FRAGMENT = "venta.renfe.com/vol/home.do"
 JOURNEY_RADIO_IDS = {"ida": "journeyStationOrigin", "vuelta": "journeyStationDestin"}
 
 RESULT_ROW_SELECTOR = "tr[id^='row']"
+# Only rows with seats carry one; a full train shows a "Tren completo" notice instead.
+RESERVE_BUTTON_SELECTOR = "button[id^='continuar']"
 DEPARTURE_LABEL = "Salida"
-# Bounded by digits, not word breaks, so a unit glued to the time ("07:15h") still reads.
-TIME_PATTERN = re.compile(r"(?<!\d)(\d{1,2}:\d{2})(?!\d)")
+# Renfe writes times as "07.18"; the API and the interface use "07:18".
+TIME_PATTERN = re.compile(r"(?<!\d)(\d{1,2})[:.](\d{2})(?!\d)")
+# Renfe serves this label already mangled, so the original cannot be decoded back.
+LABEL_REPAIRS = {"Duraciï¿½n": "Duración"}
+SEATS_LABEL = "Plazas"
+SEATS_FREE = "Disponible"
+SEATS_FULL = "Completo"
 
 CONFIRMATION_LOCATOR = (
     By.CSS_SELECTOR,
@@ -534,8 +541,8 @@ def _submit_search(
 def _choose_train(
     driver: WebDriver, wait: WebDriverWait, reporter: Reporter, interaction: Interaction
 ) -> str:
-    # Waiting for a row alone reported a day with trains as empty, 4 s into a 100 s wait:
-    # a row can be present before any departure in the table is readable.
+    # Wait for a readable departure, not just a row: the scripted click returns before
+    # the results page loads, so the first row found may not be readable yet.
     try:
         trains: list[Train] = wait.until(lambda _: list_trains(driver))
     except TimeoutException:
@@ -564,28 +571,40 @@ def list_trains(driver: WebDriver) -> list[Train]:
     """Read the results table without assuming its columns.
 
     Only the departure cell is relied on, because polling matches on it; every other
-    `data-label` cell is passed through for the interface to show as-is.
+    `data-label` cell with text is passed through for the interface to show as-is,
+    plus a seats cell derived from the reserve button.
     """
-    trains: list[Train] = []
-    seen: set[str] = set()
+    trains: dict[str, Train] = {}
     for row in driver.find_elements(By.CSS_SELECTOR, RESULT_ROW_SELECTOR):
         try:
-            cells = {
-                label: _cell_text(cell)
-                for cell in row.find_elements(By.CSS_SELECTOR, "td[data-label]")
-                if (label := cell.get_attribute("data-label"))
-            }
+            cells = {}
+            for cell in row.find_elements(By.CSS_SELECTOR, "td[data-label]"):
+                label, text = cell.get_attribute("data-label"), _cell_text(cell)
+                if label and text:
+                    cells[LABEL_REPAIRS.get(label, label)] = text
+            has_seats = bool(row.find_elements(By.CSS_SELECTOR, RESERVE_BUTTON_SELECTOR))
         except StaleElementReferenceException:
             continue
 
-        match = TIME_PATTERN.search(cells.get(DEPARTURE_LABEL, ""))
-        # Polling tells trains apart by departure time alone, so a repeated time would
-        # offer a choice the bot cannot honour.
-        if match is None or match.group(1) in seen:
+        departure = _parse_departure(cells.get(DEPARTURE_LABEL, ""))
+        if departure is None:
             continue
-        seen.add(match.group(1))
-        trains.append(Train(departure=match.group(1), cells=cells))
-    return trains
+        # Polling tells trains apart by departure alone and tries every row sharing it,
+        # so a repeated time is offered once, with seats if any of its rows has them.
+        listed = trains.get(departure)
+        if listed is None:
+            cells[SEATS_LABEL] = SEATS_FREE if has_seats else SEATS_FULL
+            trains[departure] = Train(departure=departure, cells=cells)
+        elif has_seats:
+            listed["cells"][SEATS_LABEL] = SEATS_FREE
+    return list(trains.values())
+
+
+def _parse_departure(text: str) -> str | None:
+    match = TIME_PATTERN.search(text)
+    if match is None:
+        return None
+    return f"{int(match.group(1)):02d}:{match.group(2)}"
 
 
 def _cell_text(cell: WebElement) -> str:
@@ -615,10 +634,6 @@ def _poll_for_seat(
     cancel: threading.Event,
 ) -> None:
     reporter.state(JobState.POLLING, f"Buscando plazas para las {departure_time}")
-    row_xpath = (
-        f"//td[@data-label='{DEPARTURE_LABEL}' and contains(text(), '{departure_time}')]"
-        "/ancestor::tr"
-    )
 
     attempt = 0
     while True:
@@ -626,12 +641,14 @@ def _poll_for_seat(
         attempt += 1
         reporter.attempt(attempt)
 
-        try:
-            row = driver.find_element(By.XPATH, row_xpath)
-            # Rows are identified as "row<n>"; the reserve button is "continuar<n>".
-            row_number = (row.get_attribute("id") or "")[3:]
-            _js_click(driver, driver.find_element(By.ID, f"continuar{row_number}"))
+        button = _find_reserve_button(driver, departure_time)
+        if button is None:
+            reporter.log(f"Intento {attempt}: el tren sigue sin plazas, recargando")
+            driver.refresh()
+            continue
 
+        try:
+            _js_click(driver, button)
             submit = wait.until(EC.element_to_be_clickable((By.ID, "submitSiguiente")))
             _js_click(driver, submit)
 
@@ -646,6 +663,28 @@ def _poll_for_seat(
         except (NoSuchElementException, TimeoutException):
             reporter.log(f"Intento {attempt}: tren no disponible, recargando")
             driver.refresh()
+
+
+def _find_reserve_button(driver: WebDriver, departure: str) -> WebElement | None:
+    """Return the reserve button of a row leaving at `departure` that has seats.
+
+    Renfe can list one departure twice under different train numbers, each with its
+    own seats, so every matching row is tried.
+    """
+    wanted = _parse_departure(departure)
+    for row in driver.find_elements(By.CSS_SELECTOR, RESULT_ROW_SELECTOR):
+        try:
+            cells = row.find_elements(
+                By.CSS_SELECTOR, f"td[data-label='{DEPARTURE_LABEL}']"
+            )
+            if not cells or _parse_departure(_cell_text(cells[0])) != wanted:
+                continue
+            buttons = row.find_elements(By.CSS_SELECTOR, RESERVE_BUTTON_SELECTOR)
+        except StaleElementReferenceException:
+            continue
+        if buttons:
+            return buttons[0]
+    return None
 
 
 def _is_sold_out(driver: WebDriver, cancel: threading.Event) -> bool:
